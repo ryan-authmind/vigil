@@ -174,27 +174,47 @@ class ContextManager:
 
     @staticmethod
     def apply_prompt_cache_controls(api_kwargs: Dict[str, Any]) -> None:
+        """Enable Anthropic prompt caching on a Messages API kwargs dict.
+
+        Two complementary mechanisms (see Anthropic prompt-caching docs):
+
+        1. **Explicit breakpoints** on the stable prefix — system prompt and
+           the last tool definition — so agent/tool schemas stay warm across
+           turns at ~0.1× input cost.
+        2. **Automatic caching** via a top-level ``cache_control`` field so
+           the growing multi-turn ``messages`` history is cached as the
+           conversation lengthens (breakpoint moves forward each request).
+
+        Kill-switched by Settings → AI Config → Anthropic prompt caching
+        (``prompt_cache_enabled`` / ``ANTHROPIC_PROMPT_CACHE_ENABLED``).
+        """
         from core.platform.runtime_config import get_ai_operations_setting
 
         if not get_ai_operations_setting("prompt_cache_enabled", True):
             return
 
+        ephemeral = {"type": "ephemeral"}
+
+        # Automatic caching — last cacheable block moves forward with the
+        # conversation. Combine with explicit breakpoints below.
+        api_kwargs.setdefault("cache_control", ephemeral)
+
         system = api_kwargs.get("system")
         if isinstance(system, str) and system:
             api_kwargs["system"] = [
-                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+                {"type": "text", "text": system, "cache_control": ephemeral}
             ]
         elif isinstance(system, list) and system:
             last = system[-1]
             if isinstance(last, dict) and "cache_control" not in last:
-                system[-1] = {**last, "cache_control": {"type": "ephemeral"}}
+                system[-1] = {**last, "cache_control": ephemeral}
 
         tools = api_kwargs.get("tools")
         if isinstance(tools, list) and tools:
             last_tool = tools[-1]
             if isinstance(last_tool, dict) and "cache_control" not in last_tool:
                 api_kwargs["tools"] = tools[:-1] + [
-                    {**last_tool, "cache_control": {"type": "ephemeral"}}
+                    {**last_tool, "cache_control": ephemeral}
                 ]
 
     # ------------------------------------------------------------------

@@ -398,7 +398,7 @@ function OperationsPanel({ notify }: SectionProps) {
     >
       <ToggleRow
         label="Anthropic prompt caching"
-        hint="Tag system + tool blocks with cache_control. ~90% cheaper on cached input tokens. Leave on unless debugging cache behavior."
+        hint="Tags system + tools with cache_control and enables automatic multi-turn caching. ~90% cheaper on cached input tokens. Leave on unless debugging cache behavior."
         checked={settings.prompt_cache_enabled}
         onChange={(v) => { const next = { ...settings, prompt_cache_enabled: v }; setSettings(next); persist(next) }}
       />

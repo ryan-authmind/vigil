@@ -1,13 +1,18 @@
 /* ============================================================
    AI-powered custom integration builder (redesign port). 3 steps:
    provide docs → review/edit generated metadata + MCP server code →
-   validate & save. Talks to /api/custom-integrations/* directly via
-   fetch (these endpoints aren't in services/api.ts).
+   validate & save. Goes through customIntegrationsAPI so these calls get
+   the shared client's cookie creds, X-CSRF-Token header, 401-refresh and
+   the long LLM timeout (generation regularly takes ~a minute).
    ============================================================ */
 import { useRef, useState } from 'react'
 import { Icon } from '../../shared/icons'
 import { Field, Popup, Select, TextInput } from '../../shared/ui'
-import { basePath } from '../../../config/basePath'
+import { extractApiError } from '../../shared/formKit'
+import {
+  customIntegrationsAPI,
+  type IntegrationValidationResponse,
+} from '../../../services/api'
 import { INTEGRATION_CATEGORIES } from '../../../config/integrations'
 
 interface Props {
@@ -15,10 +20,17 @@ interface Props {
   onSave: (integrationId: string) => void
 }
 
+interface GeneratedMetadata {
+  category?: string
+  description?: string
+  fields?: { name: string; label: string; type: string; required?: boolean }[]
+  [key: string]: unknown
+}
+
 interface GeneratedIntegration {
   integration_id: string
   integration_name: string
-  metadata: { category?: string; description?: string; fields?: { name: string; label: string; type: string; required?: boolean }[] }
+  metadata: GeneratedMetadata
   server_code: string
 }
 
@@ -44,7 +56,7 @@ export default function CustomIntegrationBuilder({ onClose, onSave }: Props) {
   const [claudeQuestion, setClaudeQuestion] = useState('')
   const [userAnswer, setUserAnswer] = useState('')
 
-  const [validation, setValidation] = useState<{ valid?: boolean; checks?: Record<string, boolean>; syntax_error?: string } | null>(null)
+  const [validation, setValidation] = useState<IntegrationValidationResponse | null>(null)
   const [showCode, setShowCode] = useState(false)
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,33 +73,37 @@ export default function CustomIntegrationBuilder({ onClose, onSave }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const resp = await fetch(`${basePath}/api/custom-integrations/generate`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          documentation,
-          integration_name: integrationName || null,
-          category,
-          conversation_history: conversation.length ? conversation : null,
-          user_response: userResponse || null,
-        }),
+      const { data } = await customIntegrationsAPI.generate({
+        documentation,
+        integration_name: integrationName || null,
+        category,
+        conversation_history: conversation.length ? conversation : null,
+        user_response: userResponse || null,
       })
-      const result = await resp.json()
-      if (!resp.ok || !result.success) throw new Error(result.detail || result.error || 'Failed to generate integration')
-      if (result.needs_clarification) {
+      if (data.needs_clarification) {
         setNeedsClarification(true)
-        setClaudeQuestion(result.message)
-        setConversation(result.conversation_history || [])
+        setClaudeQuestion(data.message || '')
+        setConversation(data.conversation_history || [])
         setUserAnswer('')
-      } else {
-        setGenerated(result)
-        setServerCode(result.server_code)
-        setNeedsClarification(false)
-        setStep(1)
+        return
       }
+      // A 200 without an id/server_code means the model answered in a shape the
+      // parser accepted but the builder can't drive — surface it rather than
+      // advancing to an empty review step.
+      if (!data.integration_id || !data.server_code) {
+        throw new Error('The model returned no integration code. Try adding more detail to the documentation.')
+      }
+      setGenerated({
+        integration_id: data.integration_id,
+        integration_name: data.integration_name || data.integration_id,
+        metadata: (data.metadata as GeneratedMetadata) || {},
+        server_code: data.server_code,
+      })
+      setServerCode(data.server_code)
+      setNeedsClarification(false)
+      setStep(1)
     } catch (e) {
-      setError((e as { message?: string })?.message || 'Failed to generate integration')
+      setError(extractApiError(e, 'Failed to generate integration'))
     } finally {
       setLoading(false)
     }
@@ -98,22 +114,16 @@ export default function CustomIntegrationBuilder({ onClose, onSave }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const save = await fetch(`${basePath}/api/custom-integrations/save`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ integration_id: generated.integration_id, metadata: generated.metadata, server_code: serverCode }),
+      await customIntegrationsAPI.save({
+        integration_id: generated.integration_id,
+        metadata: generated.metadata,
+        server_code: serverCode,
       })
-      if (!save.ok) throw new Error('Failed to save integration for validation')
-      const res = await fetch(`${basePath}/api/custom-integrations/${generated.integration_id}/validate`, {
-        method: 'POST',
-        credentials: 'include',
-      })
-      if (!res.ok) throw new Error('Failed to validate integration')
-      setValidation(await res.json())
+      const { data } = await customIntegrationsAPI.validate(generated.integration_id)
+      setValidation(data)
       setStep(2)
     } catch (e) {
-      setError((e as { message?: string })?.message || 'Failed to validate integration')
+      setError(extractApiError(e, 'Failed to validate integration'))
     } finally {
       setLoading(false)
     }
@@ -124,24 +134,21 @@ export default function CustomIntegrationBuilder({ onClose, onSave }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const resp = await fetch(`${basePath}/api/custom-integrations/save`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ integration_id: generated.integration_id, metadata: generated.metadata, server_code: serverCode }),
+      await customIntegrationsAPI.save({
+        integration_id: generated.integration_id,
+        metadata: generated.metadata,
+        server_code: serverCode,
       })
-      if (!resp.ok) throw new Error('Failed to save integration')
-      await resp.json()
       onSave(generated.integration_id)
     } catch (e) {
-      setError((e as { message?: string })?.message || 'Failed to save integration')
+      setError(extractApiError(e, 'Failed to save integration'))
     } finally {
       setLoading(false)
     }
   }
 
   const next = () => {
-    if (step === 0) (needsClarification ? generate(userAnswer) : generate())
+    if (step === 0) generate(needsClarification ? userAnswer : undefined)
     else if (step === 1) validate()
     else finalSave()
   }

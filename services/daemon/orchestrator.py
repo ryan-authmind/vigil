@@ -20,7 +20,12 @@ from typing import Any, Dict, List, Optional
 
 from core.agents.builtins import ORCHESTRATION_DECISION_ID, ORCHESTRATOR_ACTOR
 from core.config import get_settings
-from services.daemon.config import OrchestratorConfig
+from services.daemon.config import (
+    HOT_RELOADABLE_ORCHESTRATOR_FIELDS,
+    ORCHESTRATOR_SETTINGS_KEY,
+    OrchestratorConfig,
+    apply_orchestrator_settings,
+)
 
 try:
     from opentelemetry.trace import SpanKind
@@ -165,7 +170,7 @@ class Orchestrator:
             )
 
         while not shutdown_event.is_set():
-            self._sync_enabled_from_db()
+            self._sync_config_from_db()
 
             if not self._enabled:
                 await self._sleep(shutdown_event, 5)
@@ -188,7 +193,7 @@ class Orchestrator:
             ]
 
             while not shutdown_event.is_set() and self._enabled:
-                self._sync_enabled_from_db()
+                self._sync_config_from_db()
                 await self._sleep(shutdown_event, 5)
 
             for task in tasks:
@@ -203,9 +208,15 @@ class Orchestrator:
         self._abandon_in_flight()
         logger.info("Orchestrator shutdown complete")
 
-    def _sync_enabled_from_db(self):
-        """Read the enabled state from the single ``orchestrator.settings``
-        SystemConfig row (set by the API/UI toggle or the Settings page)."""
+    def _sync_config_from_db(self):
+        """Re-read the single ``orchestrator.settings`` SystemConfig row (set by
+        the API/UI toggle or the Settings page).
+
+        Syncs the enable flag *and* the runtime guardrails. ``self.config`` is
+        the same object ``AgentRunner`` holds, so mutating it in place is what
+        makes a saved cost/iteration/runtime limit reach the pre-flight gate
+        without a daemon restart.
+        """
         try:
             from core.storage.connection import get_db_manager
             from core.storage.models import SystemConfig
@@ -213,16 +224,31 @@ class Orchestrator:
             with get_db_manager().session_scope() as session:
                 cfg = (
                     session.query(SystemConfig)
-                    .filter_by(key="orchestrator.settings")
+                    .filter_by(key=ORCHESTRATOR_SETTINGS_KEY)
                     .first()
                 )
-                if cfg and isinstance(cfg.value, dict):
-                    db_enabled = bool(cfg.value.get("enabled", False))
-                    if db_enabled != self._enabled:
-                        self._enabled = db_enabled
-                        logger.info(
-                            f"Orchestrator {'ENABLED' if db_enabled else 'DISABLED'} (synced from DB)"
-                        )
+                if not (cfg and isinstance(cfg.value, dict)):
+                    return
+                db_config = dict(cfg.value)
+
+            changed = apply_orchestrator_settings(
+                self.config,
+                db_config,
+                fields=HOT_RELOADABLE_ORCHESTRATOR_FIELDS,
+            )
+            if changed:
+                logger.info(
+                    "Orchestrator settings synced from DB: %s",
+                    ", ".join(
+                        f"{name}={getattr(self.config, name)}"
+                        for name in sorted(changed)
+                    ),
+                )
+
+            if self.config.enabled != self._enabled:
+                self._enabled = self.config.enabled
+                state = "ENABLED" if self._enabled else "DISABLED"
+                logger.info(f"Orchestrator {state} (synced from DB)")
         except Exception:
             pass
 

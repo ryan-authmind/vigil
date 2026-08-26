@@ -181,6 +181,7 @@ def test_every_audited_integration_is_registered():
         "snyk",
         "okta",
         "azure-ad",
+        "authmind",
         "ping-identity",
         "auth0",
         "onelogin",

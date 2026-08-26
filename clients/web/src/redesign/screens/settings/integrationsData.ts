@@ -36,6 +36,7 @@ export const WIP_SERVERS = new Set([
  *  registration, persisted enabled-state store). */
 export const SERVER_DISPLAY_NAMES = new Map(Object.entries({
   loglm: 'LogLM',
+  authmind: 'AuthMind',
   'deeptempo-findings': 'Findings & Cases',
   'tempo-flow': 'Agent Workflows',
 }))
@@ -55,7 +56,7 @@ export const MCP_CATEGORIES: McpCategory[] = [
   { label: 'SIEM / Data Lake', servers: ['splunk', 'azure-sentinel', 'gcp-secops', 'cribl-stream'] },
   { label: 'Threat Intelligence', servers: ['virustotal', 'gcp-threat-intel', 'shodan', 'alienvault-otx', 'misp'] },
   { label: 'Cloud Security', servers: ['aws-security', 'gcp-scc', 'palo-alto'] },
-  { label: 'Identity & Access', servers: ['okta', 'azure-ad'] },
+  { label: 'Identity & Access', servers: ['okta', 'azure-ad', 'authmind'] },
   { label: 'Network Security', servers: ['vstrike'] },
   { label: 'Incident Management', servers: ['jira', 'pagerduty', 'slack', 'microsoft-teams'] },
   { label: 'Sandbox / Analysis', servers: ['joe-sandbox', 'hybrid-analysis', 'anyrun', 'url-analysis', 'ip-geolocation'] },
@@ -86,6 +87,8 @@ export const SERVER_DESCRIPTIONS = new Map(Object.entries({
   'palo-alto': 'Query Palo Alto Networks firewalls for threat logs, traffic analysis, and IP/domain blocking.',
   okta: 'Query Okta for user authentication events, suspicious sign-ins, and identity-based threat investigation.',
   'azure-ad': 'Query Microsoft Entra ID (Azure AD) for sign-in logs, risky users, and directory lookups.',
+  authmind:
+    'Query AuthMind for identity-security issues, playbooks, identities, assets, accesses, identity systems, and secrets during investigations.',
   jira: 'Create and manage Jira issues for incident tracking, remediation tasks, and SOC workflow integration.',
   pagerduty: 'Trigger and manage PagerDuty incidents for on-call alerting and escalation during security events.',
   slack: 'Send alerts and investigation summaries to Slack channels. Enables team collaboration during incidents.',

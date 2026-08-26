@@ -239,6 +239,7 @@ def _parse_skill_md(text: str) -> tuple[str, Dict[str, Any]]:
     required_tools = _coerce_required_tools(front.get("required_tools"))
     input_schema = _coerce_mapping(front.get("input_schema"), "input_schema")
     output_schema = _coerce_mapping(front.get("output_schema"), "output_schema")
+    execution_steps = _coerce_execution_steps(front.get("execution_steps"))
 
     description = front.get("description")
     if description is not None and not isinstance(description, str):
@@ -252,7 +253,7 @@ def _parse_skill_md(text: str) -> tuple[str, Dict[str, Any]]:
         "output_schema": output_schema,
         "required_tools": required_tools,
         "prompt_template": body,
-        "execution_steps": [],
+        "execution_steps": execution_steps,
         "is_active": True,
     }
     return name, patch
@@ -279,6 +280,43 @@ def _coerce_required_tools(value: Any) -> List[str]:
         "required_tools must be a string or a list of strings",
         {"got_type": type(value).__name__},
     )
+
+
+def _coerce_execution_steps(value: Any) -> List[Dict[str, Any]]:
+    """Accept optional ``execution_steps`` from SKILL.md frontmatter."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise SkillImportError(
+            400,
+            "execution_steps must be a YAML list of mappings",
+            {"got_type": type(value).__name__},
+        )
+    out: List[Dict[str, Any]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise SkillImportError(
+                400,
+                "execution_steps entries must be mappings",
+                {"index": index, "got_type": type(item).__name__},
+            )
+        step = dict(item)
+        step.setdefault("step_id", str(index + 1))
+        step.setdefault("type", "mcp_tool_call")
+        if step.get("type") != "mcp_tool_call":
+            raise SkillImportError(
+                400,
+                f"unsupported execution_steps type: {step.get('type')!r}",
+                {"index": index, "allowed": ["mcp_tool_call"]},
+            )
+        if not step.get("tool"):
+            raise SkillImportError(
+                400,
+                "execution_steps entries require a 'tool' field",
+                {"index": index},
+            )
+        out.append(step)
+    return out
 
 
 def _coerce_mapping(value: Any, field: str) -> Dict[str, Any]:

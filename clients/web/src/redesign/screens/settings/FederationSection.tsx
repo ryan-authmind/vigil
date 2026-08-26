@@ -26,13 +26,18 @@ const SOURCE_LABELS = new Map([
   ['aws_security_hub', 'AWS Security Hub'],
   ['microsoft_defender', 'Microsoft Defender'],
   ['elastic', 'Elastic Security'],
+  ['authmind', 'AuthMind'],
 ])
 
-function formatRelative(iso: string | null): string {
+export function formatRelative(iso: string | null, now = Date.now()): string {
   if (!iso) return 'never'
-  const t = new Date(iso).getTime()
+  // PostgreSQL's timestamp columns are serialized without an offset even
+  // though federation records are written in UTC. Explicitly mark naive API
+  // values as UTC so browsers do not interpret them in the local timezone.
+  const timestamp = /(?:Z|[+-]\d{2}:\d{2})$/i.test(iso) ? iso : `${iso}Z`
+  const t = new Date(timestamp).getTime()
   if (Number.isNaN(t)) return 'never'
-  const sec = Math.floor((Date.now() - t) / 1000)
+  const sec = Math.max(0, Math.floor((now - t) / 1000))
   if (sec < 60) return `${sec}s ago`
   if (sec < 3600) return `${Math.floor(sec / 60)}m ago`
   if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`

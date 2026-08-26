@@ -3,9 +3,25 @@
 import { useState, type ReactNode } from 'react'
 import { Icon } from './icons'
 
+// Always returns a string. FastAPI's `detail` is a string for HTTPException but
+// a list of error objects for 422s, and a dev-proxy failure yields a plain-text
+// body — rendering either of those raw puts "[object Object]" in a banner.
 export const extractApiError = (e: unknown, fallback: string): string => {
-  const err = e as { response?: { data?: { detail?: string } }; message?: string }
-  return err?.response?.data?.detail || err?.message || fallback
+  const err = e as {
+    response?: { data?: unknown; status?: number }
+    message?: string
+  }
+  const data = err?.response?.data
+  if (typeof data === 'string' && data.trim()) return data.trim()
+  const detail = (data as { detail?: unknown } | undefined)?.detail
+  if (typeof detail === 'string' && detail) return detail
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((d) => (d as { msg?: string })?.msg)
+      .filter((m): m is string => Boolean(m))
+    if (msgs.length) return msgs.join('; ')
+  }
+  return err?.message || fallback
 }
 
 export const Banner = ({ kind, children }: { kind: 'err' | 'ok'; children: ReactNode }) => (

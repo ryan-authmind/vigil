@@ -1,7 +1,8 @@
 """Skills API — CRUD + AI-assisted generation for reusable SOC capabilities.
 
-See Issue #82 (Skill Builder). Execution of skills is out of scope here and
-will be added by a follow-up PR on top of the llm_worker ARQ pattern.
+See Issue #82 (Skill Builder). Skills execute declared ``execution_steps``
+inline via ``core.skills.skill_executor`` (Phase 2); this router owns CRUD,
+AI generation, and SKILL.md import.
 """
 
 import logging

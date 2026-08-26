@@ -594,6 +594,18 @@ def is_extra_model(provider_type: str, model_id: str) -> bool:
     return (provider_type, model_id) in _EXTRA_IDS
 
 
+def get_cached_provider_models(provider_id: str) -> Optional[List[str]]:
+    """Return the cached routable model list for ``provider_id``, or None.
+
+    Cache-only sibling of ``fetch_provider_models`` — never triggers a sync,
+    so synchronous callers (request handlers validating a save) can consult
+    the same list the dropdown renders without blocking on upstream I/O.
+    None means "cache is cold", which callers should treat as "unknown",
+    not "empty".
+    """
+    return _MODEL_LIST_CACHE.get(provider_id)
+
+
 async def fetch_provider_models(row) -> List[str]:
     """Return the cached model list for a provider.
 

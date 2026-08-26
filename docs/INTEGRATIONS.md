@@ -43,6 +43,7 @@ Backend tools are automatically enabled for web UI users via the Claude Agent SD
 | Sandbox | Hybrid Analysis, Joe Sandbox, ANY.RUN, CAPE Sandbox | Implemented |
 | Ticketing | Jira | Implemented |
 | Communication | Slack | Implemented |
+| Identity & Access | Okta, Azure AD, AuthMind | Implemented |
 | Data Pipeline | Cribl Stream | Implemented |
 
 ## Security-Detections-MCP
@@ -572,9 +573,107 @@ Available for future implementation:
 | AWS Security Hub | Cloud |
 | Azure Sentinel | Cloud |
 | GCP Security | Cloud |
-| Azure AD | Identity |
-| Okta | Identity |
 | Microsoft Defender | EDR |
 | SentinelOne | EDR |
 | Carbon Black | EDR |
 | PagerDuty | Communication |
+
+
+## AuthMind
+
+Identity-security enrichment for investigations. Read-only MCP tools
+bridge AuthMind **AM API v1** (issues, playbooks) and **v2**
+(`/amapi/v2/posture/*` identities, assets, accesses, identity systems,
+secrets). Console user administration is not exposed. Spec:
+[AuthMind API v2](https://authmind-qa.redocly.app/openapi.bundled).
+
+v1 still owns the alert stream. v2 is the inventory / secrets surface;
+matched playbooks also appear on v2 entity detail payloads.
+
+### Configuration
+
+Settings → Integrations → **AuthMind**:
+
+| Field | Secret env | Notes |
+|-------|------------|-------|
+| `base_url` | — | e.g. `https://console.authmind.com`. The `/amapi`, `/amapi/v1`, and `/amapi/v2` suffixes are also accepted — all four are normalized to the `/amapi` root; each call prefixes `/v1` or `/v2` itself |
+| `api_token` | `AUTHMIND_API_TOKEN` | JWT from AuthMind Admin → API Tokens. v2 posture/secrets need `posture`; v1 issues need `issues`; v1 playbooks need `playbooks` |
+| `verify_ssl` | — | Defaults to true |
+
+Then enable the **authmind** server on Settings → MCP Servers.
+
+### MCP tools
+
+| Tool | AuthMind endpoint |
+|------|-------------------|
+| `authmind_list_issues_for_siem` | `GET /v1/getIssues` (bookmark with `issue_id_gt`) |
+| `authmind_get_issue_details` | `GET /v1/getIssueDetails` |
+| `authmind_list_issues` | `GET /v1/issues` |
+| `authmind_list_issue_accesses` | `GET /v1/issue/{incident_id}/accesses` |
+| `authmind_list_playbooks` | `GET /v1/playbooks` |
+| `authmind_list_identity_systems` / `_get_identity_system_details` | `GET /v2/posture/identity-systems`, `/posture/identity-systems/details` |
+| `authmind_list_identities` / `_get_identity_details` / `_list_identity_hosts` | `GET /v2/posture/identities`, `/details`, `/hosts` |
+| `authmind_list_assets` / `_get_asset_details` / `_list_asset_hosts` | `GET /v2/posture/assets`, `/details`, `/hosts` |
+| `authmind_list_accesses` / `_get_access_details` | `GET /v2/posture/accesses`, `/details` |
+| `authmind_list_access_source_hosts` / `_destination_hosts` | `GET /v2/posture/accesses/source-hosts`, `/destination-hosts` |
+| `authmind_list_secrets` / `_get_secret_details` | `GET /v2/posture/secrets`, `/details` (metadata only — never secret material) |
+
+v1 issue lists return `{result, total}` (or `{results, metadata}` on
+`getIssues`). v2 lists use a **1-based** `from` page number (echoed as
+`meta.page`) and return `{data, meta, error}`. v2 errors use RFC 7807
+ProblemDetails. v2 rate limit is 50 requests/minute.
+
+### Federation (SIEM-style polling)
+
+AuthMind can also feed the auto-investigator as a **federated monitoring
+source**. Enable it under Settings → Federation after the integration is
+configured:
+
+1. Settings → Integrations → AuthMind — set `base_url` + `api_token`, enable.
+2. Settings → Federation — turn on the global toggle, then enable **AuthMind**.
+3. Optional: set interval (default 300s), max items, and min severity.
+
+The adapter polls **v1** `GET /v1/issues` first and bookmarks the highest
+`issue_id` ingested (`data_source=authmind`, `external_id=<issue_id>`).
+On first enable it baselines to the latest issue and **does not backfill**.
+When more issues are pending than `max_items` allows, the oldest are
+ingested first and the cursor advances only that far.
+
+If the token cannot read v1 issues (missing `issues` permission), or the
+cursor already holds a v2 `latest_activity_time` watermark, the adapter
+falls back to high-score (score ≥ 50) identities, assets, and secrets via
+`latest_activity_time_gt`. A leftover v1 `issue_id` cursor stays on the
+issues path rather than replaying the posture catalog.
+
+### Investigation skills
+
+Versioned playbooks under `skills/authmind/` teach agents how to validate and
+qualify AuthMind alerts by pivoting across Issues, Identity, Assets,
+Accesses, and Secrets:
+
+| Skill | Purpose |
+|-------|---------|
+| AuthMind Alert Qualification | First-pass triage of a federated issue / posture finding |
+| AuthMind Identity Investigation | Profile an identity, hosts, directories, matched playbooks |
+| AuthMind Asset Investigation | Profile an asset, hosts, accessors, matched playbooks |
+| AuthMind Access Investigation | Trace identity→asset flows and endpoint hosts |
+| AuthMind Secrets and Credential Risk | High-score secrets, credential exposure, MFA / auth-fail signals |
+
+Seed / refresh into a running instance:
+
+```bash
+python scripts/seed_authmind_skills.py
+```
+
+Or import a single zip via Workflows → Skills → Import Zip.
+
+Invoking a skill runs its `execution_steps` against the AuthMind MCP server
+and returns structured `step_results` plus a rendered investigation prompt.
+
+### Implementation
+
+- Client: `core/integrations/authmind/client.py`
+- MCP server: `core/integrations/authmind/tool.py`
+- Federation adapter: `core/integrations/authmind/adapter.py`
+- Descriptor: `core/integrations/authmind/descriptor.py`
+- mcp-config key: `authmind`

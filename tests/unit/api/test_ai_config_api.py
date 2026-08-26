@@ -169,6 +169,44 @@ def test_put_component_rejects_inactive_provider(client, session):
     assert r.status_code == 400
 
 
+def test_put_component_rejects_unroutable_model(client):
+    with patch(
+        "services.api.routers.ai_config.get_cached_provider_models",
+        return_value=["claude-sonnet-4-6", "claude-opus-4-7"],
+    ):
+        r = client.put(
+            "/api/ai/config/triage",
+            json={"provider_id": "anthropic-default", "model_id": "claude-opus-5"},
+        )
+    assert r.status_code == 400
+    assert "claude-opus-5" in r.json()["detail"]
+    assert "claude-sonnet-4-6" in r.json()["detail"]
+
+
+def test_put_component_accepts_routable_model(client, session):
+    with patch(
+        "services.api.routers.ai_config.get_cached_provider_models",
+        return_value=["claude-sonnet-4-6", "claude-opus-4-7"],
+    ):
+        r = client.put(
+            "/api/ai/config/triage",
+            json={"provider_id": "anthropic-default", "model_id": "claude-opus-4-7"},
+        )
+    assert r.status_code == 200, r.text
+    assert session.assignments["triage"].model_id == "claude-opus-4-7"
+
+
+def test_put_component_allows_any_model_when_cache_is_cold(client, session):
+    # A cold cache means the routable set is unknown — never block the save.
+    with patch("services.api.routers.ai_config.get_cached_provider_models", return_value=None):
+        r = client.put(
+            "/api/ai/config/triage",
+            json={"provider_id": "anthropic-default", "model_id": "brand-new-model"},
+        )
+    assert r.status_code == 200, r.text
+    assert session.assignments["triage"].model_id == "brand-new-model"
+
+
 def test_put_component_updates_existing(client, session):
     # seed
     client.put(

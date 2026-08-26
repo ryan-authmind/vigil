@@ -303,6 +303,12 @@
       }
     },
 
+    "authmind": {
+      "command": "python3",
+      "args": ["core/integrations/authmind/tool.py"],
+      "cwd": "${workspaceFolder}"
+    },
+
     "misp": {
       "command": "python3",
       "args": ["core/integrations/misp/tool.py"],

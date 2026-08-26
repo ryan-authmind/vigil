@@ -10,6 +10,100 @@ from core.llm.defaults import DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
+ORCHESTRATOR_SETTINGS_KEY = "orchestrator.settings"
+
+# Field → cast for every scalar in the ``orchestrator.settings`` row.
+ORCHESTRATOR_FIELD_CASTS = {
+    "enabled": bool,
+    "loop_interval": int,
+    "max_concurrent_agents": int,
+    "max_iterations_per_agent": int,
+    "max_cost_per_investigation": float,
+    "max_total_hourly_cost": float,
+    "max_total_daily_cost": float,
+    "max_runtime_per_investigation": int,
+    "stale_threshold": int,
+    "workdir_base": str,
+    "auto_assign_findings": bool,
+    "dry_run": bool,
+    "dedup_window_minutes": int,
+    "agent_loop_delay": int,
+    "context_max_chars": int,
+    "plan_model": str,
+    "review_model": str,
+}
+
+# What a *running* daemon re-reads on every sync loop. The Settings UI promises
+# changes land within ~60s, and startup-only loading broke that: a saved cost
+# limit sat unused until restart while the pre-flight gate kept quoting the old
+# budget. Deliberately excluded:
+#   workdir_base  — WorkdirManager is constructed from it, so swapping it
+#                   mid-run orphans in-flight investigation directories.
+#   plan_model /
+#   review_model  — ai_model_configs wins for these (GH #89); re-applying the
+#                   row would undo the resolution done in from_env().
+HOT_RELOADABLE_ORCHESTRATOR_FIELDS = frozenset(
+    ORCHESTRATOR_FIELD_CASTS.keys() - {"workdir_base", "plan_model", "review_model"}
+)
+
+
+_MISSING = object()
+
+
+def _cast_setting(key, raw):
+    """Cast one row value, or return ``_MISSING`` if it's unusable.
+
+    A single garbage value must not strand the rest of the apply.
+    """
+    try:
+        return ORCHESTRATOR_FIELD_CASTS[key](raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Ignoring unusable orchestrator.settings value for %s: %r", key, raw
+        )
+        return _MISSING
+
+
+def _assign_if_changed(orchestrator, key, value) -> bool:
+    if getattr(orchestrator, key) == value:
+        return False
+    setattr(orchestrator, key, value)
+    return True
+
+
+def apply_orchestrator_settings(orchestrator, db_config, *, fields=None) -> List[str]:
+    """Apply an ``orchestrator.settings`` dict onto an OrchestratorConfig.
+
+    Casts each present key and assigns it only when the value actually
+    changes. Returns the names of the fields that changed, so callers can log
+    a diff instead of a heartbeat. Pass ``fields`` to restrict the apply —
+    see ``HOT_RELOADABLE_ORCHESTRATOR_FIELDS``.
+    """
+    if not isinstance(db_config, dict):
+        return []
+
+    keys = [
+        key
+        for key in ORCHESTRATOR_FIELD_CASTS
+        if key in db_config and (fields is None or key in fields)
+    ]
+
+    changed: List[str] = []
+    for key in keys:
+        value = _cast_setting(key, db_config[key])
+        if value is not _MISSING and _assign_if_changed(orchestrator, key, value):
+            changed.append(key)
+
+    severities = db_config.get("auto_assign_severities")
+    wanted = fields is None or "auto_assign_severities" in fields
+    if wanted and isinstance(severities, list):
+        if _assign_if_changed(
+            orchestrator, "auto_assign_severities", [str(s) for s in severities]
+        ):
+            changed.append("auto_assign_severities")
+
+    return changed
+
 
 @dataclass
 class PollingConfig:
@@ -213,34 +307,9 @@ class DaemonConfig:
         try:
             from core.storage.config_service import get_config_service
             config_service = get_config_service()
-            db_config = config_service.get_system_config('orchestrator.settings')
+            db_config = config_service.get_system_config(ORCHESTRATOR_SETTINGS_KEY)
             if db_config and isinstance(db_config, dict):
-                field_map = {
-                    'enabled': bool,
-                    'loop_interval': int,
-                    'max_concurrent_agents': int,
-                    'max_iterations_per_agent': int,
-                    'max_cost_per_investigation': float,
-                    'max_total_hourly_cost': float,
-                    'max_total_daily_cost': float,
-                    'max_runtime_per_investigation': int,
-                    'stale_threshold': int,
-                    'workdir_base': str,
-                    'auto_assign_findings': bool,
-                    'dry_run': bool,
-                    'dedup_window_minutes': int,
-                    'agent_loop_delay': int,
-                    'context_max_chars': int,
-                    'plan_model': str,
-                    'review_model': str,
-                }
-                for key, cast in field_map.items():
-                    if key in db_config:
-                        setattr(config.orchestrator, key, cast(db_config[key]))
-                if 'auto_assign_severities' in db_config:
-                    val = db_config['auto_assign_severities']
-                    if isinstance(val, list):
-                        config.orchestrator.auto_assign_severities = val
+                apply_orchestrator_settings(config.orchestrator, db_config)
                 logger.info("Orchestrator config overridden from database settings")
         except Exception as e:
             logger.debug(f"Could not load orchestrator config from DB (using env/defaults): {e}")

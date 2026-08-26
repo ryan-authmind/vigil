@@ -5,12 +5,9 @@ execution: agents couldn't actually invoke what the user saved. This module
 closes that gap by generating one Anthropic tool per active skill each time
 an agent runs. The model sees ``skill_<slug>`` tools alongside the regular
 backend and MCP toolset; when it picks one, ``execute_skill_tool`` expands
-the skill's ``prompt_template`` with the provided inputs and returns the
-rendered text as the tool result for the model to reason over.
-
-No execution of ``execution_steps`` yet — that's intentionally deferred to a
-later ARQ worker per the Skill MVP note. The prompt-fragment path is
-already enough to make skills usable in chat today.
+the skill's ``prompt_template`` with the provided inputs, runs any declared
+``execution_steps`` against MCP (Phase 2), and returns both the rendered
+prompt and structured ``step_results`` for the model to reason over.
 """
 
 from __future__ import annotations
@@ -75,10 +72,17 @@ def build_skill_tool(skill: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         desc_parts.append(
             "Recommended upstream tools: " + ", ".join(str(t) for t in required[:6])
         )
-    desc_parts.append(
-        "Calling this returns the skill's rendered prompt fragment — "
-        "use that as guidance for your next step."
-    )
+    n_steps = len(skill.get("execution_steps") or [])
+    if n_steps:
+        desc_parts.append(
+            f"Calling this runs {n_steps} MCP step(s) and returns "
+            "structured step_results plus a rendered investigation prompt."
+        )
+    else:
+        desc_parts.append(
+            "Calling this returns the skill's rendered prompt fragment — "
+            "use that as guidance for your next step."
+        )
     description = " ".join(desc_parts)[:1024]
 
     tool_def = {
@@ -144,12 +148,17 @@ def _render_prompt(template: str, inputs: Dict[str, Any]) -> Tuple[str, List[str
     return rendered, sorted(set(missing))
 
 
-def execute_skill_tool(
+async def execute_skill_tool(
     tool_name: str,
     tool_input: Dict[str, Any],
     skills_by_tool_name: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Execute a skill tool call and return the result payload.
+
+    Phase 2: when the skill declares ``execution_steps``, those MCP calls
+    run inline and their payloads land in ``step_results``. The rendered
+    prompt is always returned so the model can still produce a disposition
+    / summary from the gathered evidence.
 
     Pass ``skills_by_tool_name`` to skip a DB lookup; otherwise we fetch
     fresh state (keeps this callable from the ARQ worker path where the
@@ -173,22 +182,34 @@ def execute_skill_tool(
             )
         }
 
-    rendered, missing = _render_prompt(
-        skill.get("prompt_template") or "", dict(tool_input or {})
-    )
-    result = {
+    inputs = dict(tool_input or {})
+    rendered, missing = _render_prompt(skill.get("prompt_template") or "", inputs)
+    result: Dict[str, Any] = {
         "skill_id": skill.get("skill_id"),
         "skill_name": skill.get("name"),
         "rendered_prompt": rendered,
     }
     if missing:
         result["missing_inputs"] = missing
-    exec_steps = skill.get("execution_steps") or []
-    if exec_steps:
-        # Surface structured steps as a hint — actual orchestration is
-        # Issue #82 Phase 2 (ARQ worker). For now the agent can read the
-        # steps and drive them via its existing MCP tools.
-        result["execution_steps_hint"] = exec_steps
     if skill.get("required_tools"):
         result["required_tools"] = skill["required_tools"]
+
+    exec_steps = skill.get("execution_steps") or []
+    if exec_steps:
+        try:
+            from core.skills.skill_executor import execute_skill_steps
+
+            orchestration = await execute_skill_steps(skill, inputs)
+            result.update(orchestration)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Skill orchestration failed for %s", tool_name)
+            result["execution_status"] = "failed"
+            result["execution_errors"] = [
+                {"error": f"{type(exc).__name__}: {exc}"}
+            ]
+            result["step_results"] = {}
+    else:
+        result["execution_status"] = "noop"
+        result["step_results"] = {}
+
     return result

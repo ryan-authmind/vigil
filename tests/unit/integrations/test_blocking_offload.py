@@ -90,6 +90,25 @@ async def test_crowdstrike_federation_adapter_does_not_block_the_loop():
 
 
 @pytest.mark.asyncio
+async def test_authmind_federation_adapter_does_not_block_the_loop():
+    from core.integrations.authmind.adapter import _factory
+
+    adapter = _factory()
+    svc = MagicMock()
+    svc.list_issues = _blocking({"result": [], "total": 0})
+
+    with patch.object(adapter, "_get_service", return_value=svc):
+        _, ticks = await _tick_while(
+            adapter.fetch(since=None, cursor={}, max_items=10)
+        )
+
+    assert ticks >= MIN_TICKS, (
+        f"loop served only {ticks} ticks during a {BLOCK_SECONDS}s AuthMind "
+        "fetch — the call is running on the event loop"
+    )
+
+
+@pytest.mark.asyncio
 async def test_defender_fetch_alerts_does_not_block_the_loop():
     from core.integrations.microsoft_defender.ingestion import MicrosoftDefenderIngestion
 

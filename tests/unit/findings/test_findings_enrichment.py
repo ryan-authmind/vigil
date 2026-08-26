@@ -27,6 +27,8 @@ from core.findings.enrichment import (
     UnidentifiableFinding,
     enrich,
     extract_json_block,
+    merge_mitre_predictions,
+    mitre_predictions_from_enrichment,
     parse_enrichment,
     summarize_finding,
 )
@@ -317,6 +319,78 @@ def test_extract_json_block_returns_response_when_no_braces():
 
 
 # ---------------------------------------------------------------------------
+# parse.py — related_techniques → mitre_predictions
+# ---------------------------------------------------------------------------
+
+
+def test_mitre_predictions_from_related_techniques_uses_enrichment_confidence():
+    predictions = mitre_predictions_from_enrichment(
+        {
+            "related_techniques": [
+                {
+                    "technique_id": "T1071.001",
+                    "technique_name": "Web Protocols",
+                    "relevance": "C2 over HTTPS",
+                },
+                {"technique_id": "t1048.003"},
+            ],
+            "confidence_score": 0.85,
+        }
+    )
+    assert predictions == {"T1071.001": 0.85, "T1048.003": 0.85}
+
+
+def test_mitre_predictions_prefer_per_technique_confidence():
+    predictions = mitre_predictions_from_enrichment(
+        {
+            "related_techniques": [{"technique_id": "T1059.001", "confidence": 0.92}],
+            "confidence_score": 0.4,
+        }
+    )
+    assert predictions == {"T1059.001": 0.92}
+
+
+def test_mitre_predictions_from_raw_response_when_list_is_empty():
+    payload = {
+        "related_techniques": [
+            {
+                "technique_id": "T1190",
+                "technique_name": "Exploit Public-Facing Application",
+            }
+        ],
+        "confidence_score": 0.8,
+    }
+    predictions = mitre_predictions_from_enrichment(
+        {
+            "related_techniques": [],
+            "raw_response": f"```json\n{json.dumps(payload)}\n```",
+        }
+    )
+    assert predictions == {"T1190": 0.8}
+
+
+def test_mitre_predictions_empty_when_no_techniques():
+    assert mitre_predictions_from_enrichment({"threat_summary": "ok"}) == {}
+    assert mitre_predictions_from_enrichment(None) == {}
+
+
+def test_merge_keeps_existing_scores_and_adds_new_ids():
+    merged = merge_mitre_predictions(
+        {"T1071.001": 0.9},
+        {"T1071.001": 0.5, "T1048.003": 0.7},
+    )
+    assert merged == {"T1071.001": 0.9, "T1048.003": 0.7}
+
+
+def test_merge_preserves_list_shaped_predictions():
+    merged = merge_mitre_predictions(
+        [{"technique_id": "T1059.001", "confidence": 0.88}],
+        {"T1190": 0.7},
+    )
+    assert merged == {"T1059.001": 0.88, "T1190": 0.7}
+
+
+# ---------------------------------------------------------------------------
 # service.py — orchestration
 # ---------------------------------------------------------------------------
 
@@ -346,6 +420,48 @@ async def test_enrich_persists_by_default(stub_provider):
     enrichment = await enrich(_finding(), data_service=data_service)
 
     assert data_service.writes == [("f-20260803-001", {"ai_enrichment": enrichment})]
+
+
+async def test_enrich_persists_mitre_predictions_from_related_techniques(stub_provider):
+    stub_provider["response"] = json.dumps(
+        {
+            "threat_summary": "c2 beaconing",
+            "related_techniques": [
+                {"technique_id": "T1071.001", "technique_name": "Web Protocols"}
+            ],
+            "confidence_score": 0.85,
+        }
+    )
+    data_service = _RecordingDataService()
+
+    await enrich(_finding(), data_service=data_service)
+
+    _, updates = data_service.writes[0]
+    assert updates["mitre_predictions"] == {"T1071.001": 0.85}
+    assert updates["ai_enrichment"]["related_techniques"][0]["technique_id"] == (
+        "T1071.001"
+    )
+
+
+async def test_enrich_does_not_clobber_existing_mitre_predictions(stub_provider):
+    stub_provider["response"] = json.dumps(
+        {
+            "related_techniques": [
+                {"technique_id": "T1071.001"},
+                {"technique_id": "T1048.003"},
+            ],
+            "confidence_score": 0.6,
+        }
+    )
+    data_service = _RecordingDataService()
+
+    await enrich(
+        _finding(mitre_predictions={"T1071.001": 0.95}),
+        data_service=data_service,
+    )
+
+    _, updates = data_service.writes[0]
+    assert updates["mitre_predictions"] == {"T1071.001": 0.95, "T1048.003": 0.6}
 
 
 async def test_enrich_skips_write_when_persist_is_false(stub_provider):

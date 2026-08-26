@@ -118,9 +118,9 @@ def _should_run_step(step: Dict[str, Any], inputs: Dict[str, Any]) -> Tuple[bool
 
 
 async def _ensure_connected(server_name: str) -> Tuple[bool, Optional[str]]:
-    from core.integrations.mcp.client import get_mcp_client
+    from core.integrations.mcp.client import process_mcp_client
 
-    client = get_mcp_client()
+    client = process_mcp_client()
     if client is None:
         return False, "MCP client not available"
     try:
@@ -140,9 +140,9 @@ async def _call_mcp(
     *,
     timeout: float,
 ) -> Any:
-    from core.integrations.mcp.client import get_mcp_client
+    from core.integrations.mcp.client import process_mcp_client
 
-    client = get_mcp_client()
+    client = process_mcp_client()
     if client is None:
         return {"error": "MCP client not available"}
     return await client.call_tool(

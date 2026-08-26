@@ -74,7 +74,7 @@ async def test_execute_skill_steps_runs_matching_and_skips_others():
     )
 
     with patch(
-        "core.integrations.mcp.client.get_mcp_client", return_value=mock_client
+        "core.integrations.mcp.client.process_mcp_client", return_value=mock_client
     ):
         out = await execute_skill_steps(skill, {"issue_id": "881710"})
 
@@ -112,7 +112,7 @@ async def test_execute_skill_steps_reports_connect_failure():
     mock_client.call_tool = AsyncMock()
 
     with patch(
-        "core.integrations.mcp.client.get_mcp_client", return_value=mock_client
+        "core.integrations.mcp.client.process_mcp_client", return_value=mock_client
     ):
         out = await execute_skill_steps(skill, {})
 
@@ -147,7 +147,7 @@ async def test_execute_skill_tool_orchestrates_and_renders_prompt():
     )
 
     with patch(
-        "core.integrations.mcp.client.get_mcp_client", return_value=mock_client
+        "core.integrations.mcp.client.process_mcp_client", return_value=mock_client
     ):
         result = await execute_skill_tool(
             "skill_authmind_alert_qualification",

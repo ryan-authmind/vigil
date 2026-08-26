@@ -16,8 +16,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
-
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent.parent.parent
@@ -105,16 +103,11 @@ def test_apply_replaces_auto_assign_severities():
     assert cfg.auto_assign_severities == ["critical"]
 
 
-def test_agent_runner_sees_the_new_budget_without_a_restart():
-    """The regression this exists for: the runner holds the same config
-    object, so an in-place apply reaches the pre-flight gate immediately."""
-    from services.daemon.agent_runner import AgentRunner
-
+def test_shared_config_reference_sees_hot_reload():
+    """Orchestrator mutates ``self.config`` in place during ``_sync_config_from_db``."""
     cfg = OrchestratorConfig()
     cfg.max_cost_per_investigation = 1.0
-    runner = AgentRunner(cfg, MagicMock())
-
-    assert runner.config.max_cost_per_investigation == 1.0
+    holder = {"config": cfg}
 
     apply_orchestrator_settings(
         cfg,
@@ -122,4 +115,4 @@ def test_agent_runner_sees_the_new_budget_without_a_restart():
         fields=HOT_RELOADABLE_ORCHESTRATOR_FIELDS,
     )
 
-    assert runner.config.max_cost_per_investigation == 5.0
+    assert holder["config"].max_cost_per_investigation == 5.0

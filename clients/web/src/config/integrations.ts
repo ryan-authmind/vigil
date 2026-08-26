@@ -1530,6 +1530,41 @@ export const INTEGRATIONS: IntegrationMetadata[] = [
     docs_url: 'https://developer.okta.com/docs/reference/',
   },
   {
+    id: 'authmind',
+    name: 'AuthMind',
+    category: 'Identity & Access',
+    description:
+      'Identity-security telemetry from AuthMind: v1 issues and playbooks plus v2 identities, assets, accesses, identity systems, and secrets.',
+    functionality_type: 'Identity & Access Management',
+    fields: [
+      {
+        name: 'base_url',
+        label: 'API Base URL',
+        type: 'url',
+        required: true,
+        placeholder: 'https://console.authmind.com',
+        helpText:
+          'Your AuthMind console host (the same hostname you use to log in). /amapi, /amapi/v1, and /amapi/v2 suffixes are all accepted and normalized to /amapi.',
+      },
+      {
+        name: 'api_token',
+        label: 'API Token (JWT)',
+        type: 'password',
+        required: true,
+        helpText:
+          'Generate under AuthMind Admin → API Tokens. Include `issues` for alerts, `playbooks` for the playbook list, and `posture` for identities/assets/secrets. The token value is shown only once at creation.',
+      },
+      {
+        name: 'verify_ssl',
+        label: 'Verify SSL',
+        type: 'boolean',
+        required: false,
+        placeholder: 'true',
+      },
+    ],
+    docs_url: 'https://www.authmind.com',
+  },
+  {
     id: 'azure-ad',
     name: 'Azure Active Directory',
     category: 'Identity & Access',

@@ -156,7 +156,7 @@ Vigil benefits from two independent caching layers. They're **complementary**, n
 | Anthropic native prompt caching (GH #84 PR-C) | Request prefix (system prompt + tool schemas) | Most calls within a session | ~90% on cached input tokens | Anthropic |
 | Bifrost semantic cache (optional) | Full responses, keyed on embedding similarity | Only semantically similar retries | 100% on hit | Bifrost + Redis vector store |
 
-**Anthropic prefix caching** is turned on by default (`ANTHROPIC_PROMPT_CACHE_ENABLED=true`, kill-switch in Settings → AI Config → AI Operations). The `cache_control` markers are added in `core/llm/harness/claude.py:_apply_prompt_cache_controls` and preserved by Bifrost's `/anthropic` passthrough — verified by `scripts/bifrost_capability_probe.py`.
+**Anthropic prefix caching** is turned on by default (`ANTHROPIC_PROMPT_CACHE_ENABLED=true`, kill-switch in Settings → AI Config → AI Operations). Markers are added in `core/chat/context_manager.py:apply_prompt_cache_controls` (explicit breakpoints on system + last tool, plus top-level automatic `cache_control` for multi-turn history) and applied from both `ClaudeService` (chat + stream) and the LLM router Anthropic path — preserved by Bifrost's `/anthropic` passthrough and verified by `scripts/bifrost_capability_probe.py`.
 
 **Bifrost's semantic cache** is opt-in and configured through the Bifrost UI at http://localhost:8080 (not via `docker/bifrost/config.json` — v1.4.23 rejects a top-level `cache` block). Enabling it requires:
 

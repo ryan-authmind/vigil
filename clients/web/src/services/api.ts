@@ -723,6 +723,50 @@ export interface MempalaceHealth {
   memories_count_source: 'chromadb' | 'unavailable'
 }
 
+// Custom integration builder. `generate` is LLM-backed and routinely runs
+// for a minute or more, so it overrides the short default timeout.
+export interface GeneratedIntegrationResponse {
+  success: boolean
+  needs_clarification?: boolean
+  message?: string
+  conversation_history?: unknown[]
+  integration_id?: string
+  integration_name?: string
+  metadata?: Record<string, unknown>
+  server_code?: string
+}
+
+export interface IntegrationValidationResponse {
+  valid?: boolean
+  checks?: Record<string, boolean>
+  syntax_error?: string
+}
+
+export const customIntegrationsAPI = {
+  generate: (data: {
+    documentation: string
+    integration_name?: string | null
+    category?: string | null
+    conversation_history?: unknown[] | null
+    user_response?: string | null
+  }) =>
+    api.post<GeneratedIntegrationResponse>('/custom-integrations/generate', data, {
+      timeout: LLM_TIMEOUT,
+    }),
+  save: (data: {
+    integration_id: string
+    metadata: Record<string, unknown>
+    server_code: string
+  }) => api.post('/custom-integrations/save', data),
+  validate: (integrationId: string) =>
+    api.post<IntegrationValidationResponse>(
+      `/custom-integrations/${integrationId}/validate`,
+    ),
+  list: () => api.get('/custom-integrations/list'),
+  remove: (integrationId: string) =>
+    api.delete(`/custom-integrations/${integrationId}`),
+}
+
 // Mint a short-lived session token; the backend calls the connector BFF
 // server-to-server so the mint secret never reaches the browser.
 export const extensionsApi = {

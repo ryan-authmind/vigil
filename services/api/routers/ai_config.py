@@ -21,6 +21,7 @@ from core.storage.models import AIModelConfig, LLMProviderConfig
 from core.llm.providers.registry import (
     COMPONENTS,
     ModelInfo,
+    get_cached_provider_models,
     get_registry,
     is_valid_component,
 )
@@ -118,6 +119,20 @@ def set_component_assignment(
         raise HTTPException(
             status_code=400,
             detail=f"provider {payload.provider_id} is not active",
+        )
+
+    # A model the provider can't route is accepted silently by the DB but
+    # fails at call time as an opaque gateway 400 ("could not auto resolve a
+    # provider"), far from the save that caused it. A cold cache means the
+    # routable set is unknown, so only reject on a positive miss.
+    routable = get_cached_provider_models(payload.provider_id)
+    if routable and payload.model_id not in routable:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"model {payload.model_id} is not routable via provider "
+                f"{payload.provider_id}. Available: {', '.join(sorted(routable))}"
+            ),
         )
 
     row = db.get(AIModelConfig, component)

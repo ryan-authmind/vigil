@@ -13,7 +13,12 @@ from core.findings.enrichment.errors import (
     ProviderUnavailable,
     UnidentifiableFinding,
 )
-from core.findings.enrichment.parse import extract_json_block, parse_enrichment
+from core.findings.enrichment.parse import (
+    extract_json_block,
+    merge_mitre_predictions,
+    mitre_predictions_from_enrichment,
+    parse_enrichment,
+)
 from core.findings.enrichment.prompt import (
     FindingSummary,
     build_entity_string,
@@ -36,6 +41,8 @@ __all__ = [
     "build_techniques_string",
     "enrich",
     "extract_json_block",
+    "merge_mitre_predictions",
+    "mitre_predictions_from_enrichment",
     "parse_enrichment",
     "summarize_finding",
 ]

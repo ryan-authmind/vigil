@@ -83,6 +83,7 @@ def _ensure_builtins_loaded() -> None:
     # Every vendor adapter lives in its vertical slice; import the adapter module
     # directly for the module-scope register_adapter() side effect.
     try:
+        from core.integrations.authmind import adapter as _authmind_adapter  # noqa: F401
         from core.integrations.aws_security_hub import adapter as _aws_adapter  # noqa: F401
         from core.integrations.azure_sentinel import adapter as _azure_adapter  # noqa: F401
         from core.integrations.crowdstrike import adapter as _crowdstrike_adapter  # noqa: F401

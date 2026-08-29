@@ -22,7 +22,9 @@ from core.findings.enrichment.errors import (FindingNotFound,
                                              NoProviderConfigured,
                                              ProviderUnavailable,
                                              UnidentifiableFinding)
-from core.findings.enrichment.parse import parse_enrichment
+from core.findings.enrichment.parse import (merge_mitre_predictions,
+                                             mitre_predictions_from_enrichment,
+                                             parse_enrichment)
 from core.findings.enrichment.prompt import build_prompt, summarize_finding
 
 logger = logging.getLogger(__name__)
@@ -164,18 +166,31 @@ async def _dispatch(
 
 
 async def _persist(
-    finding_id: str, enrichment: Dict[str, Any], data_service: Any
+    finding_id: str,
+    finding: Dict[str, Any],
+    enrichment: Dict[str, Any],
+    data_service: Any,
 ) -> bool:
     """Write ``enrichment`` to the finding's ``ai_enrichment`` column.
 
-    A full replace, not a merge — see the module docstring. A failed write is
-    logged and swallowed: the caller still gets the payload it paid a provider
-    call for. Offloaded with ``to_thread`` because the data layer is sync
-    SQLAlchemy and this runs on the event loop.
+    ``ai_enrichment`` is a full replace, not a merge — see the module
+    docstring. ``mitre_predictions`` is written alongside it only when the
+    enrichment named techniques; existing source-native scores in
+    ``finding["mitre_predictions"]`` win over anything derived here (see
+    ``merge_mitre_predictions``). A failed write is logged and swallowed: the
+    caller still gets the payload it paid a provider call for. Offloaded with
+    ``to_thread`` because the data layer is sync SQLAlchemy and this runs on
+    the event loop.
     """
     service = data_service if data_service is not None else _default_data_service()
+    updates: Dict[str, Any] = {"ai_enrichment": enrichment}
+    extracted = mitre_predictions_from_enrichment(enrichment)
+    if extracted:
+        updates["mitre_predictions"] = merge_mitre_predictions(
+            finding.get("mitre_predictions"), extracted
+        )
     success = await asyncio.to_thread(
-        service.update_finding, finding_id, ai_enrichment=enrichment
+        service.update_finding, finding_id, **updates
     )
     if not success:
         logger.error("Failed to save enrichment for %s", finding_id)
@@ -270,6 +285,6 @@ async def enrich(
     enrichment["provider_type"] = provider.provider_type
 
     if persist:
-        await _persist(finding_id, enrichment, data_service)
+        await _persist(finding_id, finding, enrichment, data_service)
 
     return enrichment

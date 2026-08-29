@@ -18,11 +18,13 @@ jobs:
   # ============================================================================
   lint-backend:
     name: Lint Backend
-    # Canonical repo only. Forks can't run this pipeline (private submodules +
-    # missing secrets) so pushes to a fork's main/develop just email the owner
-    # a failure. For pull_request events github.repository is the BASE repo, so
-    # contributor PRs against Vigil-SOC/vigil still run CI as normal.
-    if: github.repository == 'Vigil-SOC/vigil'
+    # Canonical repo, plus ryan-authmind/vigil (a working fork that gates its
+    # own main on this job — see branch protection on that repo). Other forks
+    # can't run this pipeline (private submodules + missing secrets) so pushes
+    # to their main/develop just email the owner a failure. For pull_request
+    # events github.repository is the BASE repo, so contributor PRs against
+    # Vigil-SOC/vigil still run CI as normal.
+    if: github.repository == 'Vigil-SOC/vigil' || github.repository == 'ryan-authmind/vigil'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -87,7 +89,7 @@ jobs:
 
   lint-frontend:
     name: Lint Frontend
-    if: github.repository == 'Vigil-SOC/vigil'
+    if: github.repository == 'Vigil-SOC/vigil' || github.repository == 'ryan-authmind/vigil'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -280,7 +282,7 @@ jobs:
 
   test-unit-backend:
     name: Unit Tests - Backend
-    if: github.repository == 'Vigil-SOC/vigil'
+    if: github.repository == 'Vigil-SOC/vigil' || github.repository == 'ryan-authmind/vigil'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -326,7 +328,7 @@ jobs:
 
   test-unit-frontend:
     name: Unit Tests - Frontend
-    if: github.repository == 'Vigil-SOC/vigil'
+    if: github.repository == 'Vigil-SOC/vigil' || github.repository == 'ryan-authmind/vigil'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -697,7 +699,7 @@ jobs:
     # (tsc); gating it to post-merge let type errors land on main. The
     # pull_request build compiles the PR merged into its base, so it also
     # catches breakage that only appears after the merge.
-    if: github.repository == 'Vigil-SOC/vigil'
+    if: github.repository == 'Vigil-SOC/vigil' || github.repository == 'ryan-authmind/vigil'
     steps:
       - uses: actions/checkout@v7
       

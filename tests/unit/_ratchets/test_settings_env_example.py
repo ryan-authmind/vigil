@@ -14,6 +14,7 @@ NOT_SETTINGS = {
     # value saved in the UI wins over the environment.
     "AGENT_INTERNAL_TOKEN",
     "ALIENVAULT_OTX_API_KEY",
+    "AUTHMIND_WEBHOOK_TOKEN",
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "CAPE_SANDBOX_API_KEY",

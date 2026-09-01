@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - develop
+      - authmind-main
     paths:
       - 'infra/helm/**'
       - 'infra/database/init/**'

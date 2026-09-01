@@ -761,9 +761,7 @@ async def handle_call_tool(name: str, arguments: dict | None):
         if name == "authmind_list_identities":
             return _result(
                 service.list_identities(
-                    identity_type=_first(
-                        args.get("identity_type"), args.get("type")
-                    ),
+                    identity_type=_first(args.get("identity_type"), args.get("type")),
                     identity_status=args.get("identity_status"),
                     latest_activity_time_gt=since,
                     score=score,

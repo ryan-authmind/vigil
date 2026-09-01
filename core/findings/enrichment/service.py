@@ -196,9 +196,7 @@ async def _persist(
         updates["mitre_predictions"] = merge_mitre_predictions(
             finding.get("mitre_predictions"), extracted
         )
-    success = await asyncio.to_thread(
-        service.update_finding, finding_id, **updates
-    )
+    success = await asyncio.to_thread(service.update_finding, finding_id, **updates)
     if not success:
         logger.error("Failed to save enrichment for %s", finding_id)
     else:

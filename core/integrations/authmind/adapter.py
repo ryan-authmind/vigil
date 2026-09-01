@@ -283,9 +283,7 @@ class AuthMindAdapter:
             "AuthMind federation baselined at latest_activity_time=%s (no backfill)",
             watermark,
         )
-        return FetchResult(
-            findings=[], cursor={"latest_activity_time": watermark}
-        )
+        return FetchResult(findings=[], cursor={"latest_activity_time": watermark})
 
 
 def _list_identities(svc, **kwargs):
@@ -517,18 +515,13 @@ def _entity_to_finding(row: Dict[str, Any], kind: str) -> Optional[Dict[str, Any
 
     severity = _score_severity(row.get("score"))
     title = _title_for(kind, row, entity_id)
-    timestamp = (
-        _iso_timestamp(row.get("latest_activity_time"))
-        or _to_rfc3339(utcnow())
-    )
+    timestamp = _iso_timestamp(row.get("latest_activity_time")) or _to_rfc3339(utcnow())
 
     usernames: List[str] = []
     hostnames: List[str] = []
     if kind == "identity":
         usernames.append(entity_id)
-        usernames.extend(
-            str(alias) for alias in (row.get("aliases") or []) if alias
-        )
+        usernames.extend(str(alias) for alias in (row.get("aliases") or []) if alias)
     elif kind == "asset":
         hostnames.append(entity_id)
 
@@ -582,10 +575,7 @@ def _description_for(kind: str, row: Dict[str, Any], entity_id: str) -> str:
     known_bit = ""
     if known is False:
         known_bit = " unknown/shadow"
-    return (
-        f"High-score AuthMind {kind}{known_bit}: {entity_id} "
-        f"(score={score})."
-    )
+    return f"High-score AuthMind {kind}{known_bit}: {entity_id} " f"(score={score})."
 
 
 def _iso_timestamp(value: Any) -> Optional[str]:

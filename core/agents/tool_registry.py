@@ -8,6 +8,8 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Optional, Tuple
 
+from core.findings.similarity import similar_findings
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -164,7 +166,7 @@ _DATA_TOOLS: Dict[str, Callable[[Any, Args], Any]] = {
     "search_findings": lambda data, args: _page(data, args, search=True),
     "get_findings_stats": _findings_stats,
     "get_finding": lambda data, args: data.get_finding(**args),
-    "nearest_neighbors": lambda data, args: data.get_nearest_neighbors(**args),
+    "nearest_neighbors": lambda data, args: similar_findings(data, **args),
     "list_cases": _list_cases,
     "get_case": lambda data, args: data.get_case(**args),
     "create_case": _create_case,
@@ -206,7 +208,12 @@ def _indicator_lookup(args: Args) -> Any:
     indicator_type = args.get("indicator_type", "ip")
     hits = lookup_indicators(indicator_type, [str(v) for v in values])
     return [
-        {"indicator_type": indicator_type, "indicator_value": value, "known": value in hits, **(hits.get(value) or {})}
+        {
+            "indicator_type": indicator_type,
+            "indicator_value": value,
+            "known": value in hits,
+            **(hits.get(value) or {}),
+        }
         for value in values
     ]
 

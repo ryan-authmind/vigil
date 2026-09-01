@@ -4,41 +4,62 @@ SQLAlchemy Database Models for Vigil SOC
 Defines the database schema for cases, findings, and related entities.
 """
 
+import uuid
 from datetime import datetime
-from core.time import utcnow
-from typing import Optional, List
+from typing import Any, List, Optional
+
 from sqlalchemy import (
-    Column,
-    String,
-    Integer,
-    Float,
-    DateTime,
-    Text,
-    ForeignKey,
-    Table,
-    Index,
-    Boolean,
     ARRAY,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
     Numeric,
+    String,
+    Table,
+    Text,
     UniqueConstraint,
     text,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.mutable import MutableList
-from pgvector.sqlalchemy import Vector
-import uuid
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-# Fixed width for the findings vector column; sources of other dimensions
-# (LogLM 512) are zero-padded/truncated to this before storage.
-EMBEDDING_DIM = 768
+from core.time import utcnow
 
 JSONBList = MutableList.as_mutable(JSONB)
 
 
 class Base(DeclarativeBase):
-    """Base class for all database models."""
+    """Base class for all database models.
 
+    Overrides the declarative constructor for one reason: to refuse
+    ``metadata=``. SQLAlchemy accepts any kwarg for which ``hasattr(cls, key)``
+    holds, and ``metadata`` always holds — every declarative class inherits
+    ``Base.metadata``. The value lands on the instance, shadows the
+    ``MetaData``, reaches no column, and commits without error. Models that
+    need such a column rename it (``notification_metadata``,
+    ``decision_metadata``), so a bare ``metadata=`` is always a mistake, and
+    the only mistake here that nothing else can see. See #559.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        cls = type(self)
+        for key, value in kwargs.items():
+            if key == "metadata":
+                raise TypeError(
+                    f"{cls.__name__}(metadata=...) shadows the declarative "
+                    "MetaData and never reaches a column; pass the renamed "
+                    "column instead (e.g. notification_metadata)."
+                )
+            if not hasattr(cls, key):
+                raise TypeError(
+                    f"{key!r} is an invalid keyword argument for {cls.__name__}"
+                )
+            setattr(self, key, value)
 
 
 # Association table for case-finding many-to-many relationship
@@ -69,7 +90,6 @@ class Finding(Base):
     # Primary key
     finding_id: Mapped[str] = mapped_column(String(50), primary_key=True)
 
-    embedding: Mapped[List[float]] = mapped_column(Vector(EMBEDDING_DIM), nullable=False)
     mitre_predictions: Mapped[dict] = mapped_column(JSONB, nullable=False)
     anomaly_score: Mapped[float] = mapped_column(Float, nullable=False)
 
@@ -122,13 +142,6 @@ class Finding(Base):
         Index("idx_finding_data_source", "data_source"),
         Index("idx_finding_cluster_id", "cluster_id"),
         Index("idx_finding_anomaly_score", "anomaly_score"),
-        # HNSW ANN index for embedding cosine similarity (see find_similar_findings).
-        Index(
-            "idx_finding_embedding_hnsw",
-            "embedding",
-            postgresql_using="hnsw",
-            postgresql_ops={"embedding": "vector_cosine_ops"},
-        ),
         Index(
             "idx_finding_description",
             "description",
@@ -531,9 +544,7 @@ class FederationSource(Base):
 
     # Health
     last_poll_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    last_success_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, nullable=True
-    )
+    last_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     consecutive_errors: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
@@ -1418,7 +1429,9 @@ class User(Base):
     # MFA
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     mfa_secret: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    mfa_recovery_codes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    mfa_recovery_codes: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list
+    )
 
     # Session tracking
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -1821,6 +1834,8 @@ class WorkflowRun(Base):
         JSONB, nullable=False, default=list, server_default="[]"
     )
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Set when an operator removes the run from History. The row and its ledger stay.
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (
         Index("idx_workflow_runs_workflow_id", "workflow_id", "started_at"),
@@ -2164,7 +2179,7 @@ class ThreatIndicator(Base):
 class Conversation(Base):
     """Cross-device, per-analyst persistent chat conversation.
 
-    The Claude.ai-style history store for the redesign chat console: a
+    The Claude.ai-style history store for the console chat dock: a
     listable, reopenable conversation owned by an analyst. The primary key
     IS the frontend ``session_id`` so reopening a conversation lets the
     in-process ``SessionManager`` (and its MemPalace files) restore live
@@ -2203,9 +2218,7 @@ class Conversation(Base):
         server_default="now()",
     )
     # Sort key for the history list; null until the first message lands.
-    last_message_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, nullable=True
-    )
+    last_message_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     messages: Mapped[List["ChatMessage"]] = relationship(
         "ChatMessage",

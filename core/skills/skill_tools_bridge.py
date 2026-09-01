@@ -204,9 +204,7 @@ async def execute_skill_tool(
         except Exception as exc:  # noqa: BLE001
             logger.exception("Skill orchestration failed for %s", tool_name)
             result["execution_status"] = "failed"
-            result["execution_errors"] = [
-                {"error": f"{type(exc).__name__}: {exc}"}
-            ]
+            result["execution_errors"] = [{"error": f"{type(exc).__name__}: {exc}"}]
             result["step_results"] = {}
     else:
         result["execution_status"] = "noop"

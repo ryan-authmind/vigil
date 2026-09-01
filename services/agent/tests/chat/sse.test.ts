@@ -5,7 +5,7 @@ import type { Outcome } from "../../core/loop.js";
 import type { StreamEvent } from "../../core/stream.js";
 import { chatEvents, sse, type ChatEvent } from "../../workflows/chat/sse.js";
 
-const CONSOLE = join(import.meta.dirname, "..", "..", "..", "..", "clients", "web", "src", "redesign", "shell", "Chat.tsx");
+const CONSOLE = join(import.meta.dirname, "..", "..", "..", "..", "clients", "web", "src", "shell", "Chat.tsx");
 
 // What the console acts on, read off the console rather than copied from it: a
 // branch added or dropped over there shows up here as a failure.
@@ -20,7 +20,7 @@ function nameOf(event: ChatEvent): string {
 }
 
 const outcome = (reason: string): Outcome<string> =>
-  ({ status: "failed", value: null, reason, refusal: null, pending: null, capped: false, transcript: [], calls: [], turns: 1, rejected: [] });
+  ({ status: "failed", value: null, reason, refusal: null, pending: null, capped: false, transcript: [], calls: [], turns: 1, rejected: [], cost_usd: 0 });
 
 const EVERY: StreamEvent<string>[] = [
   { type: "text_delta", text: "hello" },

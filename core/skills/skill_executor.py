@@ -110,9 +110,7 @@ def _should_run_step(step: Dict[str, Any], inputs: Dict[str, Any]) -> Tuple[bool
 
     if when_all and not _inputs_present(inputs, list(when_all)):
         return False, f"missing required inputs: {', '.join(when_all)}"
-    if when_any and not any(
-        _inputs_present(inputs, [k]) for k in when_any
-    ):
+    if when_any and not any(_inputs_present(inputs, [k]) for k in when_any):
         return False, f"none of optional inputs present: {', '.join(when_any)}"
     return True, ""
 
@@ -145,9 +143,7 @@ async def _call_mcp(
     client = process_mcp_client()
     if client is None:
         return {"error": "MCP client not available"}
-    return await client.call_tool(
-        server_name, tool_name, arguments, timeout=timeout
-    )
+    return await client.call_tool(server_name, tool_name, arguments, timeout=timeout)
 
 
 def _extract_content(result: Any) -> Any:
@@ -288,9 +284,7 @@ async def execute_skill_steps(
                     "error": f"MCP server '{server_name}' not connected: {err}",
                 }
                 errors.append(entry)
-                steps_skipped.append(
-                    {"step_id": step_id, "reason": entry["error"]}
-                )
+                steps_skipped.append({"step_id": step_id, "reason": entry["error"]})
                 if not optional and not continue_on_error:
                     break
                 continue
@@ -303,9 +297,7 @@ async def execute_skill_steps(
                 steps_skipped.append(
                     {
                         "step_id": step_id,
-                        "reason": (
-                            "unresolved placeholders: " + ", ".join(unresolved)
-                        ),
+                        "reason": ("unresolved placeholders: " + ", ".join(unresolved)),
                     }
                 )
                 continue
@@ -328,9 +320,7 @@ async def execute_skill_steps(
 
         timeout = float(step.get("timeout") or _DEFAULT_TOOL_TIMEOUT)
         try:
-            raw = await _call_mcp(
-                server_name, mcp_tool, clean_args, timeout=timeout
-            )
+            raw = await _call_mcp(server_name, mcp_tool, clean_args, timeout=timeout)
             payload = _extract_content(raw)
             # Treat explicit MCP error envelopes as failures.
             if isinstance(payload, dict) and payload.get("error"):

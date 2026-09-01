@@ -165,15 +165,15 @@ def merge_mitre_predictions(
     merged: Dict[str, float] = {}
     if isinstance(existing, dict):
         for key, value in existing.items():
-            tid = normalize_technique_id(key) or (
-                key if isinstance(key, str) else None
-            )
+            tid = normalize_technique_id(key) or (key if isinstance(key, str) else None)
             if not tid:
                 continue
             if isinstance(value, (int, float)):
                 merged[tid] = _confidence(value, DEFAULT_TECHNIQUE_CONFIDENCE)
     elif isinstance(existing, list):
-        merged.update(_score_map_from_techniques(existing, DEFAULT_TECHNIQUE_CONFIDENCE))
+        merged.update(
+            _score_map_from_techniques(existing, DEFAULT_TECHNIQUE_CONFIDENCE)
+        )
     for tid, score in extracted.items():
         if tid not in merged:
             merged[tid] = score

@@ -125,18 +125,12 @@ class AuthMindService:
         if body.get("error"):
             err = body["error"]
             if isinstance(err, dict):
-                raise AuthMindError(
-                    str(err.get("message") or err.get("code") or err)
-                )
+                raise AuthMindError(str(err.get("message") or err.get("code") or err))
             raise AuthMindError(str(err))
         # v1: envelope success=false with HTTP 200.
         if body.get("success") is False:
             raise AuthMindError(
-                str(
-                    body.get("error")
-                    or body.get("errors")
-                    or "Unknown AuthMind error"
-                )
+                str(body.get("error") or body.get("errors") or "Unknown AuthMind error")
             )
         return body
 
@@ -320,9 +314,7 @@ class AuthMindService:
         )
 
     def get_identity_system_details(self, id_: str) -> Dict[str, Any]:
-        return self._unwrap(
-            self._v2("/posture/identity-systems/details", id=id_)
-        )
+        return self._unwrap(self._v2("/posture/identity-systems/details", id=id_))
 
     # ------------------------------------------------------------------ #
     # v2 posture — assets

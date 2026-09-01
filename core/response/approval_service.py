@@ -16,7 +16,6 @@ other existing callers) keep working.
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from core.time import utcnow
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -27,6 +26,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from core.storage.config_service import get_config_service
 from core.storage.connection import get_db_manager
 from core.storage.models import ApprovalAction as ApprovalActionRow
+from core.time import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -349,6 +349,30 @@ class ApprovalService:
                 return [_row_to_pending(r) for r in rows]
         except SQLAlchemyError as e:
             logger.error("DB error listing actions: %s", e)
+            return []
+
+    def list_stale_pending(self, cutoff: datetime) -> List[str]:
+        """Ids of pending actions created before ``cutoff``, oldest first.
+
+        Deliberately not expressed as ``list_actions(...)`` filtered in Python:
+        that orders newest-first and caps at 500, so once the queue is larger
+        than the cap it hides the oldest rows — the exact ones a sweep is for.
+        Ids rather than ``PendingAction`` because the caller only rejects them,
+        and because ``PendingAction.created_at`` is a serialized string, not a
+        datetime to compare against.
+        """
+        try:
+            db = get_db_manager()
+            with db.session_scope() as session:
+                stmt = (
+                    select(ApprovalActionRow.action_id)
+                    .where(ApprovalActionRow.status == ActionStatus.PENDING.value)
+                    .where(ApprovalActionRow.created_at < cutoff)
+                    .order_by(ApprovalActionRow.created_at.asc())
+                )
+                return list(session.execute(stmt).scalars().all())
+        except SQLAlchemyError as e:
+            logger.error("DB error listing stale pending actions: %s", e)
             return []
 
     def approve_action(

@@ -255,6 +255,7 @@ class Settings(BaseSettings):
     darktrace_max_body_kb: int = 1024
     cloudy_ingestion_enabled: bool = False
     cloudy_webhook_max_body_kb: int = 1024
+    authmind_webhook_enabled: bool = False
     threat_feed_poll_interval: int = 900
 
     # Sandbox

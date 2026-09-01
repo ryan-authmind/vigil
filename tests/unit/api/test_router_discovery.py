@@ -144,7 +144,11 @@ def test_no_cross_router_path_shadowing():
     )
 
 
-GATE_ENV_VARS = ("DARKTRACE_ENABLED", "CLOUDY_INGESTION_ENABLED")
+GATE_ENV_VARS = (
+    "DARKTRACE_ENABLED",
+    "CLOUDY_INGESTION_ENABLED",
+    "AUTHMIND_WEBHOOK_ENABLED",
+)
 
 
 def test_every_public_webhook_declares_a_gate():
@@ -183,6 +187,7 @@ def test_gated_webhook_receivers_are_off_by_default(monkeypatch):
     [
         ("darktrace_webhook", "DARKTRACE_ENABLED"),
         ("cloudflare_webhooks", "CLOUDY_INGESTION_ENABLED"),
+        ("authmind_webhook", "AUTHMIND_WEBHOOK_ENABLED"),
     ],
 )
 def test_gate_actually_opens_when_flag_set(monkeypatch, module, var):
@@ -251,8 +256,8 @@ def test_every_non_required_router_has_a_reason():
     deviations = [
         (name, meta) for name, _r, meta in _specs() if meta.auth is not Auth.REQUIRED
     ]
-    assert len(deviations) == 9, (
-        f"expected 9 non-REQUIRED routers, found {len(deviations)}: "
+    assert len(deviations) == 10, (
+        f"expected 10 non-REQUIRED routers, found {len(deviations)}: "
         f"{sorted(n for n, _ in deviations)}. A new one needs review."
     )
     for name, meta in deviations:

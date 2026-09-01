@@ -1,11 +1,23 @@
+import sys
+from pathlib import Path
+
+# Spawned as ``python3 core/integrations/<vendor>/tool.py`` with a narrowed env,
+# so the repo root is not on sys.path and PYTHONPATH is not forwarded. Add it
+# here so the ``core.*`` imports below resolve; otherwise they fail at spawn.
+_REPO_ROOT = str(Path(__file__).resolve().parents[3])
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 import asyncio
 import json
 import logging
+
 import httpx
-from mcp.server.models import InitializationOptions
+import mcp.server.stdio
 import mcp.types as types
 from mcp.server import NotificationOptions, Server
-import mcp.server.stdio
+from mcp.server.models import InitializationOptions
+
 from core.integrations._base.config import resolve
 from core.integrations.microsoft_defender.descriptor import MICROSOFT_DEFENDER
 

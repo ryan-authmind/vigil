@@ -40,26 +40,23 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 black isort mypy import-linter
+          pip install -r requirements-dev.txt
 
       - name: Run flake8
-        run: flake8 services/ core/ --max-line-length=120 --exclude=venv,__pycache__
-        continue-on-error: true
-      
+        run: flake8 services/ core/
+
       - name: Run black
-        run: black --check services/ core/ --exclude=venv
-        continue-on-error: true
-      
+        run: black --check services/ core/
+
       - name: Run isort
         run: isort --check-only services/ core/
-        continue-on-error: true
-      
+
       - name: Run mypy
         run: mypy services/ core/ --ignore-missing-imports
         continue-on-error: true
 
-      # The layering contracts in .importlinter (epic #481). Deliberately no
-      # continue-on-error: the rest of this job is advisory, this one gates.
+      # The layering contracts in .importlinter (epic #481). No
+      # continue-on-error: this gates, as flake8, black and isort now do.
       - name: Run import-linter
         run: lint-imports
 
@@ -118,7 +115,7 @@ jobs:
       - uses: actions/checkout@v7
       
       - name: Run hadolint
-        uses: hadolint/hadolint-action@v3.4.0
+        uses: hadolint/hadolint-action@v3.5.0
         with:
           dockerfile: infra/docker/Dockerfile.backend
           ignore: DL3008,DL3009
@@ -128,7 +125,7 @@ jobs:
       # (#635) and installs no apt packages, so the two rules waived above have
       # nothing to say about it. Advisory here would only let it rot.
       - name: Run hadolint (agent)
-        uses: hadolint/hadolint-action@v3.4.0
+        uses: hadolint/hadolint-action@v3.5.0
         with:
           dockerfile: infra/docker/Dockerfile.agent
 
@@ -487,6 +484,12 @@ jobs:
             -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
 
       - name: Initialize schema
+        # Strict here, and only here: CI provisions from empty, so a schema that
+        # cannot serve the models at this point is a provisioning bug rather
+        # than a stale deployment (#562). Scoped to the step rather than the job
+        # so it does not change how every test in the job behaves.
+        env:
+          DB_STRICT_SCHEMA: "true"
         run: |
           python -c "from core.storage.connection import init_database; init_database()"
 
@@ -565,6 +568,12 @@ jobs:
             -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
 
       - name: Initialize schema
+        # Strict here, and only here: CI provisions from empty, so a schema that
+        # cannot serve the models at this point is a provisioning bug rather
+        # than a stale deployment (#562). Scoped to the step rather than the job
+        # so it does not change how every test in the job behaves.
+        env:
+          DB_STRICT_SCHEMA: "true"
         run: |
           python -c "from core.storage.connection import init_database; init_database()"
 

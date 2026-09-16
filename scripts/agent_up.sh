@@ -14,7 +14,7 @@ ROOT="$PWD"
 
 # The backend checks this on every /internal call. Empty on either side answers
 # 503, so a run fails before its first model call rather than at the seam.
-AGENT_INTERNAL_TOKEN="$(sed -n 's/^AGENT_INTERNAL_TOKEN=//p' .env | head -1)"
+AGENT_INTERNAL_TOKEN="$(sed -n 's/^AGENT_INTERNAL_TOKEN=//p' .env | head -1 | sed -e 's/^"//' -e 's/"$//')"
 if [ -z "$AGENT_INTERNAL_TOKEN" ]; then
     echo "AGENT_INTERNAL_TOKEN is unset in .env; every /internal call would answer 503" >&2
     exit 1

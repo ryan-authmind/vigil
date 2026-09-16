@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from core.agents.internal_auth import authorise
 from core.agents.mcp_tools import MCPFailure, execute_mcp_tool, split_tool_name
-from core.agents.tool_registry import execute_backend_tool
+from core.agents.tool_registry import MANIFEST, execute_backend_tool
 from core.deps import provide_mcp_registry
 from core.integrations.mcp.registry import MCPRegistry
 from core.routing import Auth, RouterMeta
@@ -100,14 +100,32 @@ def _is_bad_arguments(exc: TypeError) -> bool:
 _ROW_CAP_ARGS = ("limit", "max_results", "max_count")
 
 
+# A backend tool whose own schema names no row-cap arg does not take one at
+# all — its handler unpacks args as real **kwargs (see get_finding, get_case
+# in tool_registry.py), so an injected "limit" is a TypeError, not a no-op.
+# Unknown-to-the-manifest names (skills, which take one args dict rather than
+# **kwargs, and MCP tools, whose schemas aren't visible here) keep the old
+# inject-limit behaviour, which is harmless for the former and intended for
+# the latter.
+def _accepts_row_cap(tool_name: str) -> bool:
+    entry = MANIFEST.get(tool_name)
+    if entry is None:
+        return True
+    props = (entry.get("input_schema") or {}).get("properties") or {}
+    return any(p in props for p in _ROW_CAP_ARGS)
+
+
 # The cap reaches the tool rather than only its answer, and a caller asking for less
 # keeps its own number. What ignores the cap is still truncated below.
 #
 # Only names the call already carries are lowered: setting all of them would hand a
-# tool a keyword its signature does not take. "limit" is added when it names none.
-def _bounded(args: Dict[str, Any], max_rows: int) -> Dict[str, Any]:
+# tool a keyword its signature does not take. "limit" is added when it names none
+# and the tool's own schema accepts one.
+def _bounded(tool_name: str, args: Dict[str, Any], max_rows: int) -> Dict[str, Any]:
     named = [name for name in _ROW_CAP_ARGS if name in args]
     if not named:
+        if not _accepts_row_cap(tool_name):
+            return dict(args)
         return {**args, "limit": max_rows}
     lowered = {
         name: min(args[name], max_rows) if isinstance(args[name], int) else max_rows
@@ -130,7 +148,7 @@ def _source_system(tool: str, registry: MCPRegistry) -> str:
 # does not get a second timeout by virtue of living on the other side.
 async def _run(body: InvokeRequest, registry: MCPRegistry) -> Tuple[Any, bool, str]:
     seconds = body.bounds.timeout_ms / 1000
-    args = _bounded(body.args, body.bounds.max_rows)
+    args = _bounded(body.tool, body.args, body.bounds.max_rows)
 
     result, handled = await asyncio.wait_for(
         execute_backend_tool(body.tool, args), timeout=seconds
@@ -150,6 +168,7 @@ async def invoke(
     registry: MCPRegistry = Depends(provide_mcp_registry),
 ) -> Dict[str, Any]:
     authorise(authorization, "tool invocation")
+    logger.warning("internal tool invoke: %s", body.tool)
 
     try:
         result, handled, source = await _run(body, registry)

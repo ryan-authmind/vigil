@@ -15,6 +15,11 @@ AUTHMIND = register_descriptor(
             IntegrationField("base_url"),
             IntegrationField("api_token", secret=True),
             IntegrationField("verify_ssl", value_type="bool"),
+            # "polling" | "skills" | "both". Governs two independent gates:
+            # AuthMindAdapter.is_configured() (federation polling) and the
+            # authmind MCP server's handle_call_tool (skill enrichment). See
+            # core.integrations.authmind.client.get_authmind_mode().
+            IntegrationField("mode"),
         ),
     )
 )

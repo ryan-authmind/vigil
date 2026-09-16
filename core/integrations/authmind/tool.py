@@ -615,7 +615,20 @@ async def handle_list_tools():
 
 @server.call_tool()
 async def handle_call_tool(name: str, arguments: dict | None):
-    from core.integrations.authmind.client import AuthMindError
+    from core.integrations.authmind.client import AuthMindError, get_authmind_mode
+
+    if get_authmind_mode() not in ("skills", "both"):
+        return _result(
+            {
+                "error": "AuthMind skills disabled",
+                "message": (
+                    "AuthMind is configured for Polling only. Switch its "
+                    "mode to 'Skills & Enrichment' or 'Both' under "
+                    "Settings → Integrations → AuthMind to let agents call "
+                    "these tools."
+                ),
+            }
+        )
 
     service = _get_service()
     if not service:

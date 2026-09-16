@@ -82,7 +82,11 @@ class AuthMindAdapter:
         self._service = None
 
     def is_configured(self) -> bool:
-        return is_integration_enabled("authmind")
+        if not is_integration_enabled("authmind"):
+            return False
+        from core.integrations.authmind.client import get_authmind_mode
+
+        return get_authmind_mode() in ("polling", "both")
 
     def default_interval(self) -> int:
         # Identity-security issues are closer to SIEM cadence than EDR.

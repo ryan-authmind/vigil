@@ -110,6 +110,105 @@ def _first(*values: Any) -> Optional[str]:
     return None
 
 
+def _rows_of(container: dict) -> Optional[list]:
+    for key in ("data", "result", "results"):
+        val = container.get(key)
+        if isinstance(val, list):
+            return val
+    return None
+
+
+def _attach_console_links(name: str, args: dict, data: Any, host: str) -> Any:
+    """Add a ``console_url`` (per-row for lists, top-level for details)
+    pointing back at the AuthMind console, so enrichment results carry a
+    reference link instead of just raw JSON. Best-effort: any field it
+    needs missing just skips that link.
+    """
+    if not host or not isinstance(data, dict):
+        return data
+
+    from core.integrations.authmind import console_links as cl
+
+    if name in ("authmind_list_issues_for_siem", "authmind_list_issues"):
+        for row in _rows_of(data) or []:
+            if isinstance(row, dict) and row.get("issue_id") is not None:
+                row["console_url"] = cl.issue_link(host, row["issue_id"])
+
+    elif name == "authmind_get_issue_details":
+        issue_id = args.get("issue_id")
+        if issue_id:
+            data["console_url"] = cl.issue_link(host, issue_id)
+
+    elif name == "authmind_list_issue_accesses":
+        incident_id = args.get("incident_id")
+        if incident_id:
+            data["console_url"] = cl.issue_link(host, incident_id)
+        for row in _rows_of(data) or []:
+            if isinstance(row, dict) and row.get("identity_name") and row.get("asset_name"):
+                row["console_url"] = cl.access_link(
+                    host, row["identity_name"], row["asset_name"]
+                )
+
+    elif name == "authmind_list_identity_systems":
+        for row in _rows_of(data) or []:
+            if isinstance(row, dict) and row.get("id"):
+                row["console_url"] = cl.identity_system_link(host, row["id"])
+
+    elif name == "authmind_get_identity_system_details":
+        id_ = _first(args.get("id"), args.get("identifier"))
+        if id_:
+            data["console_url"] = cl.identity_system_link(host, id_)
+
+    elif name == "authmind_list_assets":
+        for row in _rows_of(data) or []:
+            if isinstance(row, dict) and row.get("id"):
+                row["console_url"] = cl.asset_link(host, row["id"])
+
+    elif name in ("authmind_get_asset_details", "authmind_list_asset_hosts"):
+        id_ = _first(args.get("id"), args.get("asset_name"))
+        if id_:
+            data["console_url"] = cl.asset_link(host, id_)
+
+    elif name == "authmind_list_identities":
+        for row in _rows_of(data) or []:
+            if isinstance(row, dict) and row.get("id"):
+                row["console_url"] = cl.identity_link(host, row["id"])
+
+    elif name in ("authmind_get_identity_details", "authmind_list_identity_hosts"):
+        id_ = _first(args.get("id"), args.get("identifier"))
+        if id_:
+            data["console_url"] = cl.identity_link(host, id_)
+
+    elif name == "authmind_list_accesses":
+        for row in _rows_of(data) or []:
+            if not isinstance(row, dict):
+                continue
+            identity = row.get("identity")
+            asset = row.get("asset")
+            ident_name = identity.get("name") if isinstance(identity, dict) else row.get("identity_name")
+            asset_name = asset.get("name") if isinstance(asset, dict) else row.get("asset_name")
+            if ident_name and asset_name:
+                row["console_url"] = cl.access_link(host, ident_name, asset_name)
+
+    elif name == "authmind_get_access_details":
+        ident_name = args.get("identity_name")
+        asset_name = args.get("asset_name")
+        if ident_name and asset_name:
+            data["console_url"] = cl.access_link(host, ident_name, asset_name)
+
+    elif name == "authmind_list_secrets":
+        for row in _rows_of(data) or []:
+            if isinstance(row, dict) and row.get("id"):
+                row["console_url"] = cl.secret_link(host, row["id"])
+
+    elif name == "authmind_get_secret_details":
+        id_ = args.get("id")
+        if id_:
+            data["console_url"] = cl.secret_link(host, id_)
+
+    return data
+
+
 _PAGE = {
     "from": {
         "type": "integer",
@@ -650,9 +749,17 @@ async def handle_call_tool(name: str, arguments: dict | None):
     size = _opt_int(args, "size", 50) or 50
     since = args.get("latest_activity_time_gt")
     score = _opt_float(args, "score")
+
+    from core.integrations.authmind.console_links import console_host
+
+    host = console_host(service.base_url)
+
+    def _ok(data: Any) -> list[types.TextContent]:
+        return _result(_attach_console_links(name, args, data, host))
+
     try:
         if name == "authmind_list_issues_for_siem":
-            return _result(
+            return _ok(
                 service.list_issues_for_siem(
                     issue_id_gt=args.get("issue_id_gt"),
                     issue_time_gt=args.get("issue_time_gt"),
@@ -668,7 +775,7 @@ async def handle_call_tool(name: str, arguments: dict | None):
             issue_id = args.get("issue_id")
             if not issue_id:
                 return _result({"error": "issue_id required"})
-            return _result(
+            return _ok(
                 service.get_issue_details(
                     issue_id,
                     sort_by=args.get("sort_by") or "last_seen",
@@ -679,7 +786,7 @@ async def handle_call_tool(name: str, arguments: dict | None):
             )
 
         if name == "authmind_list_issues":
-            return _result(
+            return _ok(
                 service.list_issues(
                     status=args.get("status") or "Open",
                     risk=args.get("risk"),
@@ -699,7 +806,7 @@ async def handle_call_tool(name: str, arguments: dict | None):
             incident_id = args.get("incident_id")
             if not incident_id:
                 return _result({"error": "incident_id required"})
-            return _result(
+            return _ok(
                 service.list_issue_accesses(
                     incident_id,
                     sort_by=args.get("sort_by"),
@@ -710,7 +817,7 @@ async def handle_call_tool(name: str, arguments: dict | None):
             )
 
         if name == "authmind_list_playbooks":
-            return _result(
+            return _ok(
                 service.list_playbooks(
                     include_all=bool(args.get("include_all", False)),
                     q=args.get("q"),
@@ -722,7 +829,7 @@ async def handle_call_tool(name: str, arguments: dict | None):
             )
 
         if name == "authmind_list_identity_systems":
-            return _result(
+            return _ok(
                 service.list_identity_systems(
                     directory_type=args.get("directory_type"),
                     latest_activity_time_gt=since,
@@ -736,10 +843,10 @@ async def handle_call_tool(name: str, arguments: dict | None):
             id_ = _first(args.get("id"), args.get("identifier"))
             if not id_:
                 return _result({"error": "id required"})
-            return _result(service.get_identity_system_details(id_))
+            return _ok(service.get_identity_system_details(id_))
 
         if name == "authmind_list_assets":
-            return _result(
+            return _ok(
                 service.list_assets(
                     asset_type=args.get("asset_type"),
                     latest_activity_time_gt=since,
@@ -754,14 +861,14 @@ async def handle_call_tool(name: str, arguments: dict | None):
             asset_type = args.get("asset_type")
             if not id_ or not asset_type:
                 return _result({"error": "id (or asset_name) and asset_type required"})
-            return _result(service.get_asset_details(id_, asset_type))
+            return _ok(service.get_asset_details(id_, asset_type))
 
         if name == "authmind_list_asset_hosts":
             id_ = _first(args.get("id"), args.get("asset_name"))
             asset_type = args.get("asset_type")
             if not id_ or not asset_type:
                 return _result({"error": "id (or asset_name) and asset_type required"})
-            return _result(
+            return _ok(
                 service.list_asset_hosts(
                     id_,
                     asset_type,
@@ -772,7 +879,7 @@ async def handle_call_tool(name: str, arguments: dict | None):
             )
 
         if name == "authmind_list_identities":
-            return _result(
+            return _ok(
                 service.list_identities(
                     identity_type=_first(args.get("identity_type"), args.get("type")),
                     identity_status=args.get("identity_status"),
@@ -787,13 +894,13 @@ async def handle_call_tool(name: str, arguments: dict | None):
             id_ = _first(args.get("id"), args.get("identifier"))
             if not id_:
                 return _result({"error": "id required"})
-            return _result(service.get_identity_details(id_))
+            return _ok(service.get_identity_details(id_))
 
         if name == "authmind_list_identity_hosts":
             id_ = _first(args.get("id"), args.get("identifier"))
             if not id_:
                 return _result({"error": "id required"})
-            return _result(
+            return _ok(
                 service.list_identity_hosts(
                     id_,
                     latest_activity_time_gt=since,
@@ -803,7 +910,7 @@ async def handle_call_tool(name: str, arguments: dict | None):
             )
 
         if name == "authmind_list_accesses":
-            return _result(
+            return _ok(
                 service.list_accesses(
                     identity_name=_first(
                         args.get("identity_name"), args.get("identity")
@@ -825,7 +932,7 @@ async def handle_call_tool(name: str, arguments: dict | None):
             missing = [k for k in required if not args.get(k)]
             if missing:
                 return _result({"error": f"missing required: {', '.join(missing)}"})
-            return _result(
+            return _ok(
                 service.get_access_details(
                     identity_name=args["identity_name"],
                     identity_type=args["identity_type"],
@@ -839,7 +946,7 @@ async def handle_call_tool(name: str, arguments: dict | None):
             id_ = _first(args.get("id"), args.get("identifier"))
             if not id_:
                 return _result({"error": "id (access hash) required"})
-            return _result(
+            return _ok(
                 service.list_access_source_hosts(
                     id_,
                     latest_activity_time_gt=since,
@@ -852,7 +959,7 @@ async def handle_call_tool(name: str, arguments: dict | None):
             id_ = _first(args.get("id"), args.get("identifier"))
             if not id_:
                 return _result({"error": "id (access hash) required"})
-            return _result(
+            return _ok(
                 service.list_access_destination_hosts(
                     id_,
                     latest_activity_time_gt=since,
@@ -862,7 +969,7 @@ async def handle_call_tool(name: str, arguments: dict | None):
             )
 
         if name == "authmind_list_secrets":
-            return _result(
+            return _ok(
                 service.list_secrets(
                     latest_activity_time_gt=since,
                     score=score,
@@ -875,7 +982,7 @@ async def handle_call_tool(name: str, arguments: dict | None):
             id_ = args.get("id")
             if not id_:
                 return _result({"error": "id required"})
-            return _result(service.get_secret_details(id_))
+            return _ok(service.get_secret_details(id_))
 
         return _result({"error": f"Unknown tool: {name}"})
     except AuthMindError as exc:

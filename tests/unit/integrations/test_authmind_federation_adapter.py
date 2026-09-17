@@ -450,6 +450,9 @@ def test_is_configured_checks_integration_enablement():
     with patch(
         "core.integrations.authmind.adapter.is_integration_enabled",
         return_value=True,
+    ), patch(
+        "core.integrations.authmind.client.get_authmind_mode",
+        return_value="both",
     ):
         assert adapter.is_configured() is True
     with patch(

@@ -324,8 +324,10 @@ def main():
     parser.add_argument("--webhook-url", default=os.environ.get("VIGIL_WEBHOOK_URL", "http://localhost:8081/ingest"))
     parser.add_argument("--webhook-token", default=os.environ.get("DAEMON_WEBHOOK_TOKEN") or _load_dotenv_token())
     parser.add_argument("--api-base-url", default=os.environ.get("VIGIL_API_URL", "http://127.0.0.1:6987"))
-    parser.add_argument("--agent-id", default="investigator")
+    parser.add_argument("--agent-id", default="investigator", help="Agent to run the investigation as, e.g. 'investigator' or 'correlator'")
     parser.add_argument("--skip-investigate", action="store_true", help="Only ingest events, skip the AuthMind-skill investigation trigger")
+    parser.add_argument("--skip-ingest", action="store_true", help="Only run investigation, skip (re-)sending events to the webhook")
+    parser.add_argument("--finding-id", action="append", dest="finding_ids", help="Only investigate this finding_id (repeatable). Ingests all events regardless unless --skip-ingest is also set.")
     args = parser.parse_args()
 
     if not args.webhook_token:
@@ -334,18 +336,24 @@ def main():
 
     events = build_events()
 
-    print(f"Sending {len(events)} events to {args.webhook_url}...")
-    sent = [e for e in events if send_event(args.webhook_url, args.webhook_token, e)]
-    print(f"{len(sent)}/{len(events)} events ingested.\n")
+    if args.skip_ingest:
+        sent = events
+    else:
+        print(f"Sending {len(events)} events to {args.webhook_url}...")
+        sent = [e for e in events if send_event(args.webhook_url, args.webhook_token, e)]
+        print(f"{len(sent)}/{len(events)} events ingested.\n")
+        # Ingestion is async (webhook -> queue -> daemon processor), give it a
+        # moment to land before we look the findings up for investigation.
+        time.sleep(2)
 
     if args.skip_investigate:
         return
 
-    # Ingestion is async (webhook -> queue -> daemon processor), give it a
-    # moment to land before we look the findings up for investigation.
-    time.sleep(2)
+    if args.finding_ids:
+        wanted = set(args.finding_ids)
+        sent = [e for e in sent if e["finding_id"] in wanted]
 
-    print(f"Triggering AuthMind-skill investigation for {len(sent)} findings...")
+    print(f"Triggering AuthMind-skill investigation for {len(sent)} findings as agent '{args.agent_id}'...")
     for event in sent:
         trigger_investigation(args.api_base_url, event["finding_id"], args.agent_id)
 

@@ -33,147 +33,222 @@ from core.secrets import get_secret
 logger = logging.getLogger(__name__)
 
 
+class _Job:
+    """One request handed to a session's owner task, plus a future for the reply."""
+
+    __slots__ = ("kind", "args", "future")
+
+    def __init__(self, kind: str, args: Dict[str, Any], future: "Optional[asyncio.Future]"):
+        self.kind = kind
+        self.args = args
+        self.future = future
+
+
 class PersistentServerSession:
-    """Manages a persistent connection to an MCP server."""
+    """Manages a persistent connection to an MCP server.
+
+    anyio cancel scopes — created implicitly by ``stdio_client()`` and
+    ``ClientSession`` (each opens a task group internally) — must be entered
+    and exited by the same asyncio Task. FastAPI runs every HTTP request in
+    its own Task, and `/internal/tools/invoke` is called once per tool call,
+    so a naive implementation that enters those context managers from one
+    request's Task and exits/re-enters them (on reconnect) from another's
+    violates that invariant:
+        RuntimeError: Attempted to exit a cancel scope that isn't the
+        current task's current cancel scope
+    To avoid this, all connect/call/reconnect/cleanup work for a given
+    server happens inside a single dedicated background task (``_run``)
+    that this session owns for its whole lifetime. Every other task talks
+    to it by dropping a ``_Job`` on ``self._queue`` and awaiting the job's
+    future — never by touching the underlying session/streams directly.
+    """
 
     def __init__(self, server_name: str, server_params):
         self.server_name = server_name
         self.server_params = server_params
-        self.session: Optional[ClientSession] = None
-        self.read_stream = None
-        self.write_stream = None
-        self.stdio_context = None
-        self.session_context = None
         self.is_connected = False
-        self.lock = asyncio.Lock()
+        self._queue: "asyncio.Queue[_Job]" = asyncio.Queue()
+        self._owner_task: Optional[asyncio.Task] = None
+        self._owner_task_lock = asyncio.Lock()
+
+    async def _ensure_owner_task(self) -> None:
+        async with self._owner_task_lock:
+            if self._owner_task is None or self._owner_task.done():
+                self._owner_task = asyncio.create_task(
+                    self._run(), name=f"mcp-owner-{self.server_name}"
+                )
+
+    async def _submit(self, kind: str, args: Optional[Dict[str, Any]] = None) -> Any:
+        await self._ensure_owner_task()
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        await self._queue.put(_Job(kind, args or {}, future))
+        return await future
 
     async def connect(self) -> bool:
         """Establish persistent connection to the server."""
-        async with self.lock:
-            if self.is_connected and self.session:
+        return await self._submit("connect")
+
+    async def disconnect(self):
+        """Disconnect from the server and stop its owner task."""
+        if self._owner_task is None:
+            return
+        await self._submit("disconnect")
+        await self._queue.put(_Job("stop", {}, None))
+        try:
+            await asyncio.wait_for(self._owner_task, timeout=5.0)
+        except Exception:
+            pass
+        self._owner_task = None
+
+    async def call_tool(
+        self, tool_name: str, arguments: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Call a tool using the persistent session."""
+        return await self._submit(
+            "call_tool", {"tool_name": tool_name, "arguments": arguments}
+        )
+
+    async def list_tools(self):
+        """List tools from the persistent session."""
+        return await self._submit("list_tools")
+
+    async def _run(self) -> None:
+        """Owner task body. Owns the session/stdio contexts for their entire
+        lifetime — every ``__aenter__``/``__aexit__`` call on them happens
+        here, in this one task, so no cancel scope ever crosses a task
+        boundary."""
+        session: Optional[ClientSession] = None
+        session_context = None
+        stdio_context = None
+
+        async def do_connect() -> bool:
+            nonlocal session, session_context, stdio_context
+            if self.is_connected and session is not None:
                 return True
-
             try:
-                # Create stdio client connection
-                self.stdio_context = stdio_client(self.server_params)
-                self.read_stream, self.write_stream = (
-                    await self.stdio_context.__aenter__()
-                )
+                stdio_context = stdio_client(self.server_params)
+                read_stream, write_stream = await stdio_context.__aenter__()
 
-                # Create session
-                self.session_context = ClientSession(
-                    self.read_stream, self.write_stream
-                )
-                self.session = await self.session_context.__aenter__()
-
-                # Initialize session
-                await self.session.initialize()
+                session_context = ClientSession(read_stream, write_stream)
+                session = await session_context.__aenter__()
+                await session.initialize()
 
                 self.is_connected = True
                 logger.info(
                     f"✓ Established persistent connection to {self.server_name}"
                 )
                 return True
-
             except Exception as e:
                 logger.error(f"Failed to connect to {self.server_name}: {e}")
-                await self._cleanup()
+                await do_cleanup()
                 return False
 
-    async def disconnect(self):
-        """Disconnect from the server."""
-        async with self.lock:
-            await self._cleanup()
-
-    async def _cleanup(self):
-        """Internal cleanup method (must be called with lock held)."""
-        try:
-            if self.session_context:
-                try:
-                    await self.session_context.__aexit__(None, None, None)
-                except Exception:
-                    pass
-
-            if self.stdio_context:
-                try:
-                    await self.stdio_context.__aexit__(None, None, None)
-                except Exception:
-                    pass
-
-            self.session = None
-            self.session_context = None
-            self.stdio_context = None
-            self.read_stream = None
-            self.write_stream = None
-            self.is_connected = False
-
-        except Exception as e:
-            logger.debug(f"Error during cleanup of {self.server_name}: {e}")
-
-    async def call_tool(
-        self, tool_name: str, arguments: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Call a tool using the persistent session."""
-        async with self.lock:
-            if not self.is_connected or not self.session:
-                # Try to reconnect
-                logger.warning(
-                    f"Session not connected for {self.server_name}, attempting to reconnect..."
-                )
-                if not await self._reconnect_internal():
-                    raise RuntimeError(f"Failed to connect to {self.server_name}")
-
+        async def do_cleanup() -> None:
+            nonlocal session, session_context, stdio_context
             try:
-                result = await self.session.call_tool(tool_name, arguments)
-
-                # Convert result to dictionary
-                content_list = []
-                for content_item in result.content:
-                    if hasattr(content_item, "text"):
-                        content_list.append({"type": "text", "text": content_item.text})
-                    elif hasattr(content_item, "type"):
-                        content_list.append(
-                            {"type": str(content_item.type), "text": str(content_item)}
-                        )
-                    else:
-                        content_list.append({"type": "text", "text": str(content_item)})
-
-                return {
-                    "error": result.isError if hasattr(result, "isError") else False,
-                    "content": content_list,
-                }
-
+                if session_context:
+                    try:
+                        await session_context.__aexit__(None, None, None)
+                    except Exception:
+                        pass
+                if stdio_context:
+                    try:
+                        await stdio_context.__aexit__(None, None, None)
+                    except Exception:
+                        pass
             except Exception as e:
-                logger.error(
-                    f"Tool call failed for {self.server_name}.{tool_name}: {e}"
-                )
-                # Mark as disconnected and try to reconnect on next call
+                logger.debug(f"Error during cleanup of {self.server_name}: {e}")
+            finally:
+                session = None
+                session_context = None
+                stdio_context = None
                 self.is_connected = False
-                raise
 
-    async def _reconnect_internal(self) -> bool:
-        """Internal reconnect (must be called with lock held)."""
-        await self._cleanup()
-        return await self._connect_internal()
-
-    async def _connect_internal(self) -> bool:
-        """Internal connect (must be called with lock held)."""
         try:
-            self.stdio_context = stdio_client(self.server_params)
-            self.read_stream, self.write_stream = await self.stdio_context.__aenter__()
+            while True:
+                job = await self._queue.get()
 
-            self.session_context = ClientSession(self.read_stream, self.write_stream)
-            self.session = await self.session_context.__aenter__()
+                if job.kind == "stop":
+                    if job.future is not None and not job.future.done():
+                        job.future.set_result(None)
+                    break
 
-            await self.session.initialize()
+                try:
+                    if job.kind == "connect":
+                        result: Any = await do_connect()
 
-            self.is_connected = True
-            return True
+                    elif job.kind == "disconnect":
+                        await do_cleanup()
+                        result = None
 
-        except Exception as e:
-            logger.error(f"Reconnect failed for {self.server_name}: {e}")
-            await self._cleanup()
-            return False
+                    elif job.kind == "list_tools":
+                        if not self.is_connected or session is None:
+                            if not await do_connect():
+                                raise RuntimeError(
+                                    f"Failed to connect to {self.server_name}"
+                                )
+                        result = await session.list_tools()
+
+                    elif job.kind == "call_tool":
+                        if not self.is_connected or session is None:
+                            logger.warning(
+                                f"Session not connected for {self.server_name}, "
+                                "attempting to reconnect..."
+                            )
+                            await do_cleanup()
+                            if not await do_connect():
+                                raise RuntimeError(
+                                    f"Failed to connect to {self.server_name}"
+                                )
+
+                        tool_name = job.args["tool_name"]
+                        try:
+                            raw = await session.call_tool(
+                                tool_name, job.args["arguments"]
+                            )
+                            content_list = []
+                            for content_item in raw.content:
+                                if hasattr(content_item, "text"):
+                                    content_list.append(
+                                        {"type": "text", "text": content_item.text}
+                                    )
+                                elif hasattr(content_item, "type"):
+                                    content_list.append(
+                                        {
+                                            "type": str(content_item.type),
+                                            "text": str(content_item),
+                                        }
+                                    )
+                                else:
+                                    content_list.append(
+                                        {"type": "text", "text": str(content_item)}
+                                    )
+                            result = {
+                                "error": raw.isError
+                                if hasattr(raw, "isError")
+                                else False,
+                                "content": content_list,
+                            }
+                        except Exception as e:
+                            logger.error(
+                                f"Tool call failed for {self.server_name}.{tool_name}: {e}"
+                            )
+                            # Drop the (possibly broken) session so the next
+                            # call reconnects from a clean slate.
+                            await do_cleanup()
+                            raise
+
+                    else:
+                        raise ValueError(f"Unknown MCP session job kind: {job.kind}")
+
+                    if job.future is not None and not job.future.done():
+                        job.future.set_result(result)
+
+                except Exception as e:
+                    if job.future is not None and not job.future.done():
+                        job.future.set_exception(e)
+        finally:
+            await do_cleanup()
 
 
 class MCPClient:
@@ -288,9 +363,9 @@ class MCPClient:
                 if not await self.persistent_sessions[server_name].connect():
                     return False
 
-                # Get tools from the persistent session
-                session = self.persistent_sessions[server_name].session
-                tools_result = await session.list_tools()
+                # Get tools from the persistent session (routed through its
+                # owner task — see PersistentServerSession)
+                tools_result = await self.persistent_sessions[server_name].list_tools()
 
             else:
                 # Temporary connection just to get tools

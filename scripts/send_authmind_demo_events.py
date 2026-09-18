@@ -132,22 +132,30 @@ WINDOWS_NTLM_POSTURE = {
     "note": "Not a discrete alert, a standing posture finding (AuthMind incident 'Unsecure Protocols'). Surfaced here as blast-radius context: the same host observed in the Vault dual-auth event (pam-test-machine) already has a live network path to an NTLM-accepting domain controller.",
 }
 
-SWG_MALSITE_RETROACTIVE = {
-    "timestamp": "2026-09-18T09:14:22Z",
-    "type": "alert",
-    "alert_name": "Malicious URL Confirmed (Retroactive Detection)",
-    "alert_type": "Malsite",
-    "category": "Phishing and Fraud",
-    "action": "allow",
-    "url": "hxxps://sso-authmind-verify[.]com/login",
+NETSKOPE_PHISH_ENTRA_LOOKALIKE = {
+    "timestamp": 1750939200,
+    "alert_type": "phish",
+    "alert_name": "Phishing page detected - Credential Harvesting (Microsoft Entra ID lookalike)",
+    "action": "alert",
+    "severity": "high",
+    "policy": "NSPolicy - Threat Protection - Real-time Threat Detection",
     "user": "meenal.yadav@authmind.com",
-    "srcip": "203.0.113.77",
-    "browser": "Chrome 128",
+    "device": "AM-Sec-Win11-1",
     "os": "Windows 11",
-    "policy": "Web Threat Protection - Real-time",
-    "original_access_time": "2026-09-17T18:47:03Z",
-    "detection_time": "2026-09-18T09:14:22Z",
-    "severity": "High",
+    "browser": "Chrome",
+    "srcip": "10.42.8.117",
+    "app": "Unknown Web",
+    "category": "Phishing",
+    "traffic_type": "Web",
+    "dsthost": "login-microsftonline.com",
+    "url": "https://login-microsftonline.com/common/oauth2/authorize?client_id=00000003-0000-0ff1-ce00-000000000000&redirect_uri=https%3A%2F%2Foutlook.office365.com",
+    "dstip": "185.220.101.47",
+    "cci": 9,
+    "ccl": "poor",
+    "malsite_category": ["Phishing", "Credential Theft"],
+    "malsite_confidence": "high",
+    "organization_unit": "AuthMind/Corporate",
+    "netskope_tenant": "indexnine.goskope.com",
 }
 
 AUTHMIND_CORRELATED_INCIDENT = {
@@ -302,17 +310,23 @@ def build_events(
             "entity_context": {"asset": "AM-AD-DC-03.Authmind.local", "playbook": "Unsecure Protocols", "raw_event": WINDOWS_NTLM_POSTURE},
         },
         {
-            "finding_id": fid("swg-malsite-sso-authmind-verify"),
-            "data_source": "zscaler",
+            "finding_id": fid("netskope-phish-entra-lookalike-meenal"),
+            "data_source": "netskope",
             "external_id": None,
-            "timestamp": ts(SWG_MALSITE_RETROACTIVE["detection_time"]),
+            "timestamp": ts(
+                _format_ts(
+                    datetime.fromtimestamp(
+                        NETSKOPE_PHISH_ENTRA_LOOKALIKE["timestamp"], tz=timezone.utc
+                    )
+                )
+            ),
             "severity": "high",
-            "description": "Retroactive detection: meenal.yadav@authmind.com's browser accessed hxxps://sso-authmind-verify[.]com/login (a spoofed AuthMind SSO page) on 2026-09-17T18:47:03Z; the request was ALLOWED at access time and only confirmed malicious ~15 hours later by Web Threat Protection. Likely credential-phishing targeting an AuthMind employee.",
+            "description": "Netskope blocked meenal.yadav@authmind.com's browser from a Microsoft Entra ID / Office 365 OAuth lookalike phishing page (login-microsftonline.com, typosquatting login.microsoftonline.com) — high-confidence credential-harvesting page, Cloud Confidence Index 9/poor.",
             "entity_context": {
                 "identity": "meenal.yadav@authmind.com",
-                "asset": "sso-authmind-verify[.]com",
-                "playbook": "Malicious URL Confirmed (Retroactive Detection)",
-                "raw_event": SWG_MALSITE_RETROACTIVE,
+                "asset": "login-microsftonline.com",
+                "playbook": "Phishing - Credential Harvesting",
+                "raw_event": NETSKOPE_PHISH_ENTRA_LOOKALIKE,
             },
         },
         {

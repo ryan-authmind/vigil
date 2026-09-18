@@ -144,7 +144,11 @@ def _attach_console_links(name: str, args: dict, data: Any, host: str) -> Any:
         if incident_id:
             data["console_url"] = cl.issue_link(host, incident_id)
         for row in _rows_of(data) or []:
-            if isinstance(row, dict) and row.get("identity_name") and row.get("asset_name"):
+            if (
+                isinstance(row, dict)
+                and row.get("identity_name")
+                and row.get("asset_name")
+            ):
                 row["console_url"] = cl.access_link(
                     host, row["identity_name"], row["asset_name"]
                 )
@@ -185,8 +189,14 @@ def _attach_console_links(name: str, args: dict, data: Any, host: str) -> Any:
                 continue
             identity = row.get("identity")
             asset = row.get("asset")
-            ident_name = identity.get("name") if isinstance(identity, dict) else row.get("identity_name")
-            asset_name = asset.get("name") if isinstance(asset, dict) else row.get("asset_name")
+            ident_name = (
+                identity.get("name")
+                if isinstance(identity, dict)
+                else row.get("identity_name")
+            )
+            asset_name = (
+                asset.get("name") if isinstance(asset, dict) else row.get("asset_name")
+            )
             if ident_name and asset_name:
                 row["console_url"] = cl.access_link(host, ident_name, asset_name)
 

@@ -38,7 +38,9 @@ class _Job:
 
     __slots__ = ("kind", "args", "future")
 
-    def __init__(self, kind: str, args: Dict[str, Any], future: "Optional[asyncio.Future]"):
+    def __init__(
+        self, kind: str, args: Dict[str, Any], future: "Optional[asyncio.Future]"
+    ):
         self.kind = kind
         self.args = args
         self.future = future
@@ -224,9 +226,9 @@ class PersistentServerSession:
                                         {"type": "text", "text": str(content_item)}
                                     )
                             result = {
-                                "error": raw.isError
-                                if hasattr(raw, "isError")
-                                else False,
+                                "error": (
+                                    raw.isError if hasattr(raw, "isError") else False
+                                ),
                                 "content": content_list,
                             }
                         except Exception as e:

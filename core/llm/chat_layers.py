@@ -123,9 +123,7 @@ def _declare(
         list(static) if wanted is None else [n for n in wanted if n in static]
     )
     mcp_names = [n for n in mcp if n not in static_names and not _is_destructive_mcp(n)]
-    skill_names = [
-        n for n in skills if n not in static_names and n not in mcp_names
-    ]
+    skill_names = [n for n in skills if n not in static_names and n not in mcp_names]
     names = static_names + mcp_names + skill_names
     catalogue = {**static, **mcp, **skills}
     declared = []

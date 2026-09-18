@@ -161,6 +161,44 @@ NETSKOPE_PHISH_ENTRA_LOOKALIKE = {
     "netskope_tenant": "indexnine.goskope.com",
 }
 
+DEFENDER_PHISH_CLICK_MEENAL = {
+    "alert_id": "PHX-2026-DEMO-4471",
+    "source_tool": "Microsoft Defender for Office 365",
+    "alert_type": "Phishing email - credential harvesting link clicked",
+    "detection_name": "UserClickedPhishingURL",
+    "severity": "Medium",
+    "confidence": "Medium",
+    "created_at": "2026-09-18T13:25:00Z",
+    "status": "New",
+    "recipient": {
+        "email": "meenal.yadav@authmind.com",
+        "display_name": "Meenal Yadav",
+        "upn": "meenal.yadav@authmind.com",
+        "idp": "Microsoft Entra ID",
+    },
+    "email_details": {
+        "sender": "it-support@authmind-sso-verify.com",
+        "subject": "Action Required: Verify Your Microsoft 365 Password Before It Expires",
+        "received_at": "2026-09-18T13:15:00Z",
+        "clicked_at": "2026-09-18T13:22:00Z",
+        "malicious_url": "hxxps://authmind-sso-verify[.]com/login?session=8f2a1c9e",
+        "url_category": "Credential Phishing / Adversary-in-the-Middle (AiTM) proxy kit",
+        "attachment": None,
+    },
+    "endpoint_context": {
+        "device_name": "unknown - link opened via webmail",
+        "client_ip": "unknown - AiTM proxy masked origin",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    },
+    "raw_indicators": {
+        "urls": ["hxxps://authmind-sso-verify[.]com/login"],
+        "sender_domain": "authmind-sso-verify.com",
+        "ioc_type": "phishing_domain",
+        "ioc_source": "Microsoft Defender Threat Intelligence",
+    },
+    "context_gap": "Source tool has no visibility into the recipient's identity risk score, privilege level, associated non-human identities (apps/agents acting under this account), active token-sharing signals, or the set of downstream systems reachable by this account. On its own this alert cannot be prioritized or scoped for response.",
+}
+
 AUTHMIND_CORRELATED_INCIDENT = {
     "authmind_incident": {
         "incident_id": "DEMO-990214", "status": "Open", "risk": "Critical", "playbook": "Unauthorized Role Impersonation + Misuse of Secrets (Correlated)", "opened": "2026-09-16T19:35:02Z",
@@ -330,6 +368,22 @@ def build_events(
                 "asset": "login-microsftonline.com",
                 "playbook": "Phishing - Credential Harvesting",
                 "raw_event": NETSKOPE_PHISH_ENTRA_LOOKALIKE,
+            },
+        },
+        {
+            "finding_id": fid("defender-phish-click-meenal"),
+            "data_source": "microsoft_defender",
+            "external_id": extid("PHX-2026-DEMO-4471"),
+            # Standalone one-off event like the Netskope one above, not part
+            # of the timed demo narrative, so it always lands "now".
+            "timestamp": now_ts,
+            "severity": "medium",
+            "description": "Microsoft Defender for Office 365 detected meenal.yadav@authmind.com clicking a credential-harvesting phishing link (AiTM proxy kit at authmind-sso-verify[.]com, spoofing a Microsoft 365 password-expiry notice) — the source tool has no visibility into her identity risk, privilege level, or downstream blast radius.",
+            "entity_context": {
+                "identity": "meenal.yadav@authmind.com",
+                "asset": "authmind-sso-verify.com",
+                "playbook": "Phishing - Credential Harvesting (AiTM)",
+                "raw_event": DEFENDER_PHISH_CLICK_MEENAL,
             },
         },
         {

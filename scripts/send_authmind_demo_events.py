@@ -132,6 +132,24 @@ WINDOWS_NTLM_POSTURE = {
     "note": "Not a discrete alert, a standing posture finding (AuthMind incident 'Unsecure Protocols'). Surfaced here as blast-radius context: the same host observed in the Vault dual-auth event (pam-test-machine) already has a live network path to an NTLM-accepting domain controller.",
 }
 
+SWG_MALSITE_RETROACTIVE = {
+    "timestamp": "2026-09-18T09:14:22Z",
+    "type": "alert",
+    "alert_name": "Malicious URL Confirmed (Retroactive Detection)",
+    "alert_type": "Malsite",
+    "category": "Phishing and Fraud",
+    "action": "allow",
+    "url": "hxxps://sso-authmind-verify[.]com/login",
+    "user": "meenal.yadav@authmind.com",
+    "srcip": "203.0.113.77",
+    "browser": "Chrome 128",
+    "os": "Windows 11",
+    "policy": "Web Threat Protection - Real-time",
+    "original_access_time": "2026-09-17T18:47:03Z",
+    "detection_time": "2026-09-18T09:14:22Z",
+    "severity": "High",
+}
+
 AUTHMIND_CORRELATED_INCIDENT = {
     "authmind_incident": {
         "incident_id": "DEMO-990214", "status": "Open", "risk": "Critical", "playbook": "Unauthorized Role Impersonation + Misuse of Secrets (Correlated)", "opened": "2026-09-16T19:35:02Z",
@@ -282,6 +300,20 @@ def build_events(
             "severity": "low",
             "description": "AM-AD-DC-03 has accepted legacy NTLM authentication for 5 months (306,847 flows) — standing posture exposure, blast-radius context for hosts on its network path.",
             "entity_context": {"asset": "AM-AD-DC-03.Authmind.local", "playbook": "Unsecure Protocols", "raw_event": WINDOWS_NTLM_POSTURE},
+        },
+        {
+            "finding_id": fid("swg-malsite-sso-authmind-verify"),
+            "data_source": "zscaler",
+            "external_id": None,
+            "timestamp": ts(SWG_MALSITE_RETROACTIVE["detection_time"]),
+            "severity": "high",
+            "description": "Retroactive detection: meenal.yadav@authmind.com's browser accessed hxxps://sso-authmind-verify[.]com/login (a spoofed AuthMind SSO page) on 2026-09-17T18:47:03Z; the request was ALLOWED at access time and only confirmed malicious ~15 hours later by Web Threat Protection. Likely credential-phishing targeting an AuthMind employee.",
+            "entity_context": {
+                "identity": "meenal.yadav@authmind.com",
+                "asset": "sso-authmind-verify[.]com",
+                "playbook": "Malicious URL Confirmed (Retroactive Detection)",
+                "raw_event": SWG_MALSITE_RETROACTIVE,
+            },
         },
         {
             "finding_id": fid("demo-authmind-correlated-990214"),

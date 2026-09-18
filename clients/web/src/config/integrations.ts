@@ -1572,6 +1572,19 @@ export const INTEGRATIONS: IntegrationMetadata[] = [
         required: false,
         placeholder: 'true',
       },
+      {
+        name: 'mode',
+        label: 'Usage Mode',
+        type: 'select',
+        default: 'both',
+        options: [
+          { value: 'both', label: 'Polling + Skills & Enrichment (both)' },
+          { value: 'polling', label: 'Polling events only' },
+          { value: 'skills', label: 'Skills & Enrichment only' },
+        ],
+        helpText:
+          'Polling pulls AuthMind issues into Vigil as findings (schedule and per-source toggle are under Settings → Federation). Skills & Enrichment lets agents call AuthMind directly during an investigation via the authmind MCP server. Choose what this AuthMind connection is for.',
+      },
     ],
     docs_url: 'https://www.authmind.com',
   },

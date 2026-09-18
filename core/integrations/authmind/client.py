@@ -578,6 +578,24 @@ def normalize_base_url(raw: str) -> str:
     return f"{base}{API_ROOT}"
 
 
+_MODES = ("polling", "skills", "both")
+
+
+def get_authmind_mode() -> str:
+    """Which of polling / skills-enrichment / both this AuthMind config is for.
+
+    Read from the same non-secret config blob as base_url/verify_ssl, via
+    ``get_integration_config`` (empty when the integration's master toggle is
+    off). Defaults to "both" — unset or unrecognized values preserve the
+    pre-mode behavior where a configured AuthMind did everything.
+    """
+    from core.config import get_integration_config
+
+    cfg = get_integration_config("authmind") or {}
+    mode = str(cfg.get("mode") or "both").strip().lower()
+    return mode if mode in _MODES else "both"
+
+
 def get_authmind_service() -> Optional[AuthMindService]:
     """Build an AuthMindService from Settings / secrets, or None if unconfigured."""
     from core.config import get_integration_config

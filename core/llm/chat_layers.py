@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from core.llm.tool_schemas import ALL_TOOLS
+from core.skills.skill_tools_bridge import list_active_skill_tools
 
 REMOTE = "remote"
 
@@ -104,22 +105,27 @@ def _declare(
     wanted: Optional[List[str]],
     mcp_tools: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
-    # Two surfaces. Static built-ins are curated: a per-agent recommended-tools
+    # Three surfaces. Static built-ins are curated: a per-agent recommended-tools
     # list (``wanted``) narrows them. Connected MCP integrations (server-prefixed,
-    # e.g. virustotal_get_ip_report) are ALWAYS offered when present — a user who
-    # connected an integration expects the assistant to use it regardless of any
+    # e.g. virustotal_get_ip_report) and DB-backed Skills (``skill_<slug>``) are
+    # ALWAYS offered when present — a user who connected an integration or
+    # activated a skill expects the assistant to use it regardless of any
     # agent's tool list, and hunts curate separately (playbook_resolver). So a
-    # ``wanted`` list filters only the built-ins; live integrations are appended —
-    # except direct-action MCP tools (see ``_is_destructive_mcp``), which chat
-    # cannot safely gate and so never declares.
+    # ``wanted`` list filters only the built-ins; live integrations and active
+    # skills are appended — except direct-action MCP tools (see
+    # ``_is_destructive_mcp``), which chat cannot safely gate and so never
+    # declares.
     static = {t["name"]: t for t in ALL_TOOLS if t.get("name")}
     mcp = {t["name"]: t for t in (mcp_tools or []) if t.get("name")}
+    skill_tools, _ = list_active_skill_tools()
+    skills = {t["name"]: t for t in skill_tools if t.get("name")}
     static_names = (
         list(static) if wanted is None else [n for n in wanted if n in static]
     )
     mcp_names = [n for n in mcp if n not in static_names and not _is_destructive_mcp(n)]
-    names = static_names + mcp_names
-    catalogue = {**static, **mcp}
+    skill_names = [n for n in skills if n not in static_names and n not in mcp_names]
+    names = static_names + mcp_names + skill_names
+    catalogue = {**static, **mcp, **skills}
     declared = []
     for name in names:
         entry = catalogue[name]

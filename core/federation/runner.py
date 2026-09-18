@@ -124,8 +124,13 @@ class FederationRunner:
             row = store.get_source(source_id) or {}
             global_on = store.is_globally_enabled()
 
-            if not (global_on and row.get("enabled")):
-                # Disabled (globally or per-source) — light sleep then re-check.
+            # adapter.is_configured() is the live gate an adapter uses to say
+            # "don't poll me right now" independent of the DB row — e.g.
+            # AuthMind flips this off when its Usage Mode is set to
+            # skills-only, without needing the Federation row toggled too.
+            if not (global_on and row.get("enabled") and adapter.is_configured()):
+                # Disabled (globally, per-source, or by the adapter itself)
+                # — light sleep then re-check.
                 try:
                     await asyncio.wait_for(shutdown_event.wait(), timeout=idle_seconds)
                     break

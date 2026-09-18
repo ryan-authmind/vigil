@@ -2,17 +2,24 @@
 """
 Agentic SOC Demo: send sample events to Vigil's generic webhook.
 
-Pushes the seven AuthMind demo events (Okta noise, Vault dual-auth, CloudTrail
-S3 misuse, CloudTrail AssumeRole geo anomaly, CrowdStrike EDR, Windows NTLM
-posture, and the AuthMind "after" correlated incident) to the daemon's
-generic webhook receiver (services/daemon/poller.py, POST /ingest on
-DAEMON_WEBHOOK_PORT), then triggers an investigation per finding so the
-AuthMind skill tools (skills/authmind/*) are available to enrich them.
+Pushes the demo events (Okta noise, Vault dual-auth, CloudTrail S3 misuse,
+CloudTrail AssumeRole geo anomaly, CrowdStrike EDR, Windows NTLM posture,
+and — opt-in via --include-authmind — the AuthMind "after" correlated
+incident) to the daemon's generic webhook receiver (services/daemon/poller.py,
+POST /ingest on DAEMON_WEBHOOK_PORT), then triggers an investigation per
+finding so the AuthMind skill tools (skills/authmind/*) are available to
+enrich them.
+
+The AuthMind-sourced event is excluded by default: AuthMind is configured
+for skills/enrichment only (see core/integrations/authmind/client.py's
+get_authmind_mode()), so its data shouldn't be manually injected as a
+finding source.
 
 Usage:
     python scripts/send_authmind_demo_events.py
     python scripts/send_authmind_demo_events.py --webhook-url http://localhost:8081/ingest
     python scripts/send_authmind_demo_events.py --skip-investigate
+    python scripts/send_authmind_demo_events.py --fresh --skip-investigate
 """
 
 import argparse
@@ -20,8 +27,9 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -154,90 +162,132 @@ AUTHMIND_CORRELATED_INCIDENT = {
 }
 
 
-def build_events() -> List[Dict[str, Any]]:
-    """Map each of the 7 demo events onto a webhook-ingest body."""
-    return [
+# Latest of the original (non-AuthMind) event timestamps — the Windows NTLM
+# posture window end. --fresh shifts every timestamp by (now - this), so the
+# whole 41-minute story keeps its original pacing but lands "just now".
+_ORIGINAL_LATEST_TS = "2026-09-16T20:00:00.000Z"
+
+
+def _parse_ts(ts: str) -> datetime:
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+def _format_ts(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def build_events(
+    run_tag: Optional[str] = None,
+    fresh: bool = False,
+    include_authmind: bool = False,
+) -> List[Dict[str, Any]]:
+    """Map each of the demo events onto a webhook-ingest body.
+
+    By default this excludes the AuthMind-sourced "correlated incident"
+    event — AuthMind is configured for skills/enrichment only, so its data
+    shouldn't be manually injected as a finding source. Pass
+    include_authmind=True to add it back for e.g. a fully scripted replay.
+
+    run_tag, if given, suffixes finding_id/external_id so this run creates
+    new rows instead of colliding with (or silently no-op'ing against) a
+    prior run's. fresh shifts every timestamp so the story lands "now"
+    while preserving the original relative spacing between events.
+    """
+    offset = timedelta(0)
+    if fresh:
+        offset = datetime.now(timezone.utc) - _parse_ts(_ORIGINAL_LATEST_TS)
+
+    def fid(base: str) -> str:
+        return f"{base}-{run_tag}" if run_tag else base
+
+    def extid(base: Optional[str]) -> Optional[str]:
+        return f"{base}-{run_tag}" if (base is not None and run_tag) else base
+
+    def ts(original: str) -> str:
+        return _format_ts(_parse_ts(original) + offset) if fresh else original
+
+    events = [
         {
-            "finding_id": "demo-okta-noise-cursor-sh",
+            "finding_id": fid("demo-okta-noise-cursor-sh"),
             "data_source": "okta",
             # No console incident number applies to this specific event (only
             # agentn.api5.cursor.sh / 898243 and api.anthropic.com / 709611 are
             # listed entities) — left unset rather than reusing 898243, which
             # would collide with the uniq_findings_source_extid constraint.
             "external_id": None,
-            "timestamp": OKTA_EVENTS[0]["published"],
+            "timestamp": ts(OKTA_EVENTS[0]["published"]),
             "severity": "informational",
             "description": "Alex Chen SSO to Cursor (Agentic Coding) from Arlington, VA — trips 'Access not from Israel' baseline.",
             "entity_context": {"identity": "alex.chen@authmind.com", "asset": "cursor.sh", "playbook": "Access not from Israel", "raw_event": OKTA_EVENTS[0]},
         },
         {
-            "finding_id": "demo-okta-noise-anthropic-api",
+            "finding_id": fid("demo-okta-noise-anthropic-api"),
             "data_source": "okta",
-            "external_id": "709611",
-            "timestamp": OKTA_EVENTS[1]["published"],
+            "external_id": extid("709611"),
+            "timestamp": ts(OKTA_EVENTS[1]["published"]),
             "severity": "informational",
             "description": "Priya Natarajan SSO to Anthropic API from Bethesda, MD — trips 'Access not from Israel' baseline.",
             "entity_context": {"identity": "priya.natarajan@authmind.com", "asset": "api.anthropic.com", "playbook": "Access not from Israel", "raw_event": OKTA_EVENTS[1]},
         },
         {
-            "finding_id": "demo-okta-noise-cursor-agentic-api",
+            "finding_id": fid("demo-okta-noise-cursor-agentic-api"),
             "data_source": "okta",
-            "external_id": "898243",
-            "timestamp": OKTA_EVENTS[2]["published"],
+            "external_id": extid("898243"),
+            "timestamp": ts(OKTA_EVENTS[2]["published"]),
             "severity": "informational",
             "description": "Alex Chen OAuth2 token grant for Cursor Agentic API from Arlington, VA — trips 'Access not from Israel' baseline.",
             "entity_context": {"identity": "alex.chen@authmind.com", "asset": "agentn.api5.cursor.sh", "playbook": "Access not from Israel", "raw_event": OKTA_EVENTS[2]},
         },
         {
-            "finding_id": "demo-vault-dual-auth-reporting-app-role",
+            "finding_id": fid("demo-vault-dual-auth-reporting-app-role"),
             "data_source": "hashicorp_vault",
-            "external_id": "685040",
-            "timestamp": VAULT_DUAL_AUTH_EVENTS[0]["time"],
+            "external_id": extid("685040"),
+            "timestamp": ts(VAULT_DUAL_AUTH_EVENTS[0]["time"]),
             "severity": "high",
             "description": "reporting-app-role authenticated via two different Vault auth methods (userpass, then aws) 41s apart, from pam-test-machine — deviates from its single-method hourly baseline.",
             "entity_context": {"identity": "reporting-app-role", "asset": "pam-test-machine", "playbook": "Misuse of Secrets", "raw_event": VAULT_DUAL_AUTH_EVENTS},
         },
         {
-            "finding_id": "demo-cloudtrail-s3-secret-misuse",
+            "finding_id": fid("demo-cloudtrail-s3-secret-misuse"),
             "data_source": "aws_cloudtrail",
-            "external_id": "685040",
-            "timestamp": CLOUDTRAIL_S3_MISUSE["eventTime"],
+            "external_id": extid("685040"),
+            "timestamp": ts(CLOUDTRAIL_S3_MISUSE["eventTime"]),
             "severity": "high",
             "description": "Vault-issued AWS credential for reporting-app-role used to GetObject from s3://am-qa-reports, outside the role's documented reporting-readonly scope.",
             "entity_context": {"identity": "reporting-app-role", "asset": "am-qa-reports", "playbook": "Misuse of Secrets", "raw_event": CLOUDTRAIL_S3_MISUSE},
         },
         {
-            "finding_id": "demo-cloudtrail-assumerole-geo-anomaly",
+            "finding_id": fid("demo-cloudtrail-assumerole-geo-anomaly"),
             "data_source": "aws_cloudtrail",
-            "external_id": "905946",
-            "timestamp": CLOUDTRAIL_ASSUMEROLE_GEO_ANOMALY["eventTime"],
+            "external_id": extid("905946"),
+            "timestamp": ts(CLOUDTRAIL_ASSUMEROLE_GEO_ANOMALY["eventTime"]),
             "severity": "critical",
             "description": "hashicorp-vault-user (normally a human login from the US) assumed hashicorp-s3-access-role from a Mumbai NAT gateway — first-time source ASN/geo, acting like a service account.",
             "entity_context": {"identity": "hashicorp-vault-user", "asset": "hashicorp-s3-access-role", "playbook": "Unauthorized Role Impersonation", "raw_event": CLOUDTRAIL_ASSUMEROLE_GEO_ANOMALY},
         },
         {
-            "finding_id": "demo-crowdstrike-edr-pam-test-machine",
+            "finding_id": fid("demo-crowdstrike-edr-pam-test-machine"),
             "data_source": "crowdstrike",
-            "external_id": "685040",
-            "timestamp": CROWDSTRIKE_ALERT["created_timestamp"],
+            "external_id": extid("685040"),
+            "timestamp": ts(CROWDSTRIKE_ALERT["created_timestamp"]),
             "severity": "medium",
             "description": "Falcon EDR independently detected 'vault' invoked twice in 41s against distinct auth backends on pam-test-machine — corroborates the Vault dual-auth finding via a second tool.",
             "entity_context": {"identity": "svc_reporting", "asset": "pam-test-machine", "playbook": "Misuse of Secrets", "raw_event": CROWDSTRIKE_ALERT},
         },
         {
-            "finding_id": "demo-windows-ntlm-am-ad-dc-03",
+            "finding_id": fid("demo-windows-ntlm-am-ad-dc-03"),
             "data_source": "windows_security",
-            "external_id": "697833",
-            "timestamp": WINDOWS_NTLM_POSTURE["summary_window"]["end"],
+            "external_id": extid("697833"),
+            "timestamp": ts(WINDOWS_NTLM_POSTURE["summary_window"]["end"]),
             "severity": "low",
             "description": "AM-AD-DC-03 has accepted legacy NTLM authentication for 5 months (306,847 flows) — standing posture exposure, blast-radius context for hosts on its network path.",
             "entity_context": {"asset": "AM-AD-DC-03.Authmind.local", "playbook": "Unsecure Protocols", "raw_event": WINDOWS_NTLM_POSTURE},
         },
         {
-            "finding_id": "demo-authmind-correlated-990214",
+            "finding_id": fid("demo-authmind-correlated-990214"),
             "data_source": "authmind",
-            "external_id": "DEMO-990214",
-            "timestamp": AUTHMIND_CORRELATED_INCIDENT["authmind_incident"]["opened"],
+            "external_id": extid("DEMO-990214"),
+            "timestamp": ts(AUTHMIND_CORRELATED_INCIDENT["authmind_incident"]["opened"]),
             "severity": "critical",
             "description": AUTHMIND_CORRELATED_INCIDENT["authmind_incident"]["headline"],
             "entity_context": {
@@ -248,6 +298,11 @@ def build_events() -> List[Dict[str, Any]]:
             },
         },
     ]
+
+    if not include_authmind:
+        events = [e for e in events if e["data_source"] != "authmind"]
+
+    return events
 
 
 def send_event(webhook_url: str, token: str, event: Dict[str, Any]) -> bool:
@@ -328,13 +383,20 @@ def main():
     parser.add_argument("--skip-investigate", action="store_true", help="Only ingest events, skip the AuthMind-skill investigation trigger")
     parser.add_argument("--skip-ingest", action="store_true", help="Only run investigation, skip (re-)sending events to the webhook")
     parser.add_argument("--finding-id", action="append", dest="finding_ids", help="Only investigate this finding_id (repeatable). Ingests all events regardless unless --skip-ingest is also set.")
+    parser.add_argument("--fresh", action="store_true", help="Shift all timestamps so the story lands 'now' (preserves original relative spacing)")
+    parser.add_argument("--run-tag", default=None, help="Suffix finding_id/external_id with this tag so the run adds new rows instead of colliding with a prior run's. Auto-generated from the current time when --fresh is set and this is omitted.")
+    parser.add_argument("--include-authmind", action="store_true", help="Also (re-)send the AuthMind-sourced 'correlated incident' event. Omitted by default since AuthMind is configured for skills/enrichment only, not as a finding source.")
     args = parser.parse_args()
 
     if not args.webhook_token:
         print("ERROR: no webhook token found. Set DAEMON_WEBHOOK_TOKEN or pass --webhook-token.")
         sys.exit(1)
 
-    events = build_events()
+    run_tag = args.run_tag
+    if args.fresh and not run_tag:
+        run_tag = datetime.now(timezone.utc).strftime("%m%d%H%M%S")
+
+    events = build_events(run_tag=run_tag, fresh=args.fresh, include_authmind=args.include_authmind)
 
     if args.skip_ingest:
         sent = events

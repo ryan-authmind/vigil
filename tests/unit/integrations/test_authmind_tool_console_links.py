@@ -63,10 +63,38 @@ def test_list_accesses_reads_nested_identity_and_asset_names():
         ],
         "meta": {},
     }
-    out = _attach_console_links("authmind_list_accesses", {}, data, HOST)
+    out = _attach_console_links(
+        "authmind_list_accesses",
+        {"identity_name": "reporting-app-role", "asset_name": "am-qa-reports"},
+        data,
+        HOST,
+    )
     url = out["data"][0]["console_url"]
     assert "identity_name%3Areporting-app-role" in url
     assert "asset_name%3Aam-qa-reports" in url
+
+
+def test_list_accesses_filtered_by_identity_alone_gets_a_top_level_link():
+    data = {"data": [], "meta": {}}
+    out = _attach_console_links(
+        "authmind_list_accesses", {"identity_name": "meenal.yadav@authmind.com"}, data, HOST
+    )
+    assert "identity_name%3Ameenal.yadav%40authmind.com" in out["console_url"]
+    assert "/posture/accesses?" in out["console_url"]
+
+
+def test_list_accesses_filtered_by_asset_alone_gets_a_top_level_link():
+    data = {"data": [], "meta": {}}
+    out = _attach_console_links(
+        "authmind_list_accesses", {"asset_name": "Hashicorp Vault"}, data, HOST
+    )
+    assert "asset_name%3AHashicorp" in out["console_url"]
+
+
+def test_list_accesses_with_no_filters_gets_no_top_level_link():
+    data = {"data": [], "meta": {}}
+    out = _attach_console_links("authmind_list_accesses", {}, data, HOST)
+    assert "console_url" not in out
 
 
 def test_get_access_details_uses_the_request_args():

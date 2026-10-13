@@ -73,5 +73,24 @@ def access_link(host: str, identity_name: str, asset_name: str) -> str:
     )
 
 
+def identity_accesses_link(host: str, identity_name: str) -> str:
+    """All accesses for a single identity, no asset filter — same
+    ``/posture/accesses`` route and field-prefixed ``q`` convention as
+    ``access_link``, for calls scoped to just the identity side."""
+    return (
+        f"{host}/posture/accesses?is_access_grouped=true&order_by=asc&page=1"
+        f"&q={_q(f'identity_name:{identity_name}')}&rpp=20&sort_by=latest_time"
+    )
+
+
+def asset_accesses_link(host: str, asset_name: str) -> str:
+    """All accesses for a single asset, no identity filter — the mirror
+    of ``identity_accesses_link``."""
+    return (
+        f"{host}/posture/accesses?is_access_grouped=true&order_by=asc&page=1"
+        f"&q={_q(f'asset_name:{asset_name}')}&rpp=20&sort_by=latest_time"
+    )
+
+
 def identity_system_link(host: str, dir_name: str) -> str:
     return f"{host}/posture/identities?q={_q(f'dir_name:{dir_name}')}"

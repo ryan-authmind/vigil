@@ -184,6 +184,14 @@ def _attach_console_links(name: str, args: dict, data: Any, host: str) -> Any:
             data["console_url"] = cl.identity_link(host, id_)
 
     elif name == "authmind_list_accesses":
+        ident_arg = _first(args.get("identity_name"), args.get("identity"))
+        asset_arg = _first(args.get("asset_name"), args.get("asset"))
+        if ident_arg and asset_arg:
+            data["console_url"] = cl.access_link(host, ident_arg, asset_arg)
+        elif ident_arg:
+            data["console_url"] = cl.identity_accesses_link(host, ident_arg)
+        elif asset_arg:
+            data["console_url"] = cl.asset_accesses_link(host, asset_arg)
         for row in _rows_of(data) or []:
             if not isinstance(row, dict):
                 continue

@@ -63,6 +63,26 @@ def test_access_link_joins_identity_and_asset_tokens_with_a_plus():
     )
 
 
+def test_identity_accesses_link_filters_on_identity_alone():
+    url = cl.identity_accesses_link("https://console.authmind.com", "meenal.yadav@authmind.com")
+    assert url == (
+        "https://console.authmind.com/posture/accesses?is_access_grouped=true"
+        "&order_by=asc&page=1"
+        "&q=identity_name%3Ameenal.yadav%40authmind.com"
+        "&rpp=20&sort_by=latest_time"
+    )
+
+
+def test_asset_accesses_link_filters_on_asset_alone():
+    url = cl.asset_accesses_link("https://console.authmind.com", "Hashicorp Vault")
+    assert url == (
+        "https://console.authmind.com/posture/accesses?is_access_grouped=true"
+        "&order_by=asc&page=1"
+        "&q=asset_name%3AHashicorp%20Vault"
+        "&rpp=20&sort_by=latest_time"
+    )
+
+
 def test_links_percent_encode_special_characters_in_entity_names():
     # Composite identity labels (e.g. "Acts Like Service/Service Account:
     # praneeth (User)") contain ':', '/', '(', ')' and spaces that must not

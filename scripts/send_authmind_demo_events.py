@@ -15,11 +15,14 @@ for skills/enrichment only (see core/integrations/authmind/client.py's
 get_authmind_mode()), so its data shouldn't be manually injected as a
 finding source.
 
+Timestamps land "now" by default (pass --backdated to keep the original
+scripted times instead).
+
 Usage:
     python scripts/send_authmind_demo_events.py
     python scripts/send_authmind_demo_events.py --webhook-url http://localhost:8081/ingest
     python scripts/send_authmind_demo_events.py --skip-investigate
-    python scripts/send_authmind_demo_events.py --fresh --skip-investigate
+    python scripts/send_authmind_demo_events.py --backdated --skip-investigate
 """
 
 import argparse
@@ -132,6 +135,70 @@ WINDOWS_NTLM_POSTURE = {
     "note": "Not a discrete alert, a standing posture finding (AuthMind incident 'Unsecure Protocols'). Surfaced here as blast-radius context: the same host observed in the Vault dual-auth event (pam-test-machine) already has a live network path to an NTLM-accepting domain controller.",
 }
 
+NETSKOPE_PHISH_ENTRA_LOOKALIKE = {
+    "timestamp": 1750939200,
+    "alert_type": "phish",
+    "alert_name": "Phishing page detected - Credential Harvesting (Microsoft Entra ID lookalike)",
+    "action": "alert",
+    "severity": "high",
+    "policy": "NSPolicy - Threat Protection - Real-time Threat Detection",
+    "user": "meenal.yadav@authmind.com",
+    "device": "AM-Sec-Win11-1",
+    "os": "Windows 11",
+    "browser": "Chrome",
+    "srcip": "10.42.8.117",
+    "app": "Unknown Web",
+    "category": "Phishing",
+    "traffic_type": "Web",
+    "dsthost": "login-microsftonline.com",
+    "url": "https://login-microsftonline.com/common/oauth2/authorize?client_id=00000003-0000-0ff1-ce00-000000000000&redirect_uri=https%3A%2F%2Foutlook.office365.com",
+    "dstip": "185.220.101.47",
+    "cci": 9,
+    "ccl": "poor",
+    "malsite_category": ["Phishing", "Credential Theft"],
+    "malsite_confidence": "high",
+    "organization_unit": "AuthMind/Corporate",
+    "netskope_tenant": "indexnine.goskope.com",
+}
+
+DEFENDER_PHISH_CLICK_MEENAL = {
+    "alert_id": "PHX-2026-DEMO-4471",
+    "source_tool": "Microsoft Defender for Office 365",
+    "alert_type": "Phishing email - credential harvesting link clicked",
+    "detection_name": "UserClickedPhishingURL",
+    "severity": "Medium",
+    "confidence": "Medium",
+    "created_at": "2026-09-18T13:25:00Z",
+    "status": "New",
+    "recipient": {
+        "email": "meenal.yadav@authmind.com",
+        "display_name": "Meenal Yadav",
+        "upn": "meenal.yadav@authmind.com",
+        "idp": "Microsoft Entra ID",
+    },
+    "email_details": {
+        "sender": "it-support@authmind-sso-verify.com",
+        "subject": "Action Required: Verify Your Microsoft 365 Password Before It Expires",
+        "received_at": "2026-09-18T13:15:00Z",
+        "clicked_at": "2026-09-18T13:22:00Z",
+        "malicious_url": "hxxps://authmind-sso-verify[.]com/login?session=8f2a1c9e",
+        "url_category": "Credential Phishing / Adversary-in-the-Middle (AiTM) proxy kit",
+        "attachment": None,
+    },
+    "endpoint_context": {
+        "device_name": "unknown - link opened via webmail",
+        "client_ip": "unknown - AiTM proxy masked origin",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    },
+    "raw_indicators": {
+        "urls": ["hxxps://authmind-sso-verify[.]com/login"],
+        "sender_domain": "authmind-sso-verify.com",
+        "ioc_type": "phishing_domain",
+        "ioc_source": "Microsoft Defender Threat Intelligence",
+    },
+    "context_gap": "Source tool has no visibility into the recipient's identity risk score, privilege level, associated non-human identities (apps/agents acting under this account), active token-sharing signals, or the set of downstream systems reachable by this account. On its own this alert cannot be prioritized or scoped for response.",
+}
+
 AUTHMIND_CORRELATED_INCIDENT = {
     "authmind_incident": {
         "incident_id": "DEMO-990214", "status": "Open", "risk": "Critical", "playbook": "Unauthorized Role Impersonation + Misuse of Secrets (Correlated)", "opened": "2026-09-16T19:35:02Z",
@@ -163,8 +230,8 @@ AUTHMIND_CORRELATED_INCIDENT = {
 
 
 # Latest of the original (non-AuthMind) event timestamps — the Windows NTLM
-# posture window end. --fresh shifts every timestamp by (now - this), so the
-# whole 41-minute story keeps its original pacing but lands "just now".
+# posture window end. Every timestamp shifts by (now - this) by default, so
+# the whole 41-minute story keeps its original pacing but lands "just now".
 _ORIGINAL_LATEST_TS = "2026-09-16T20:00:00.000Z"
 
 
@@ -178,7 +245,7 @@ def _format_ts(dt: datetime) -> str:
 
 def build_events(
     run_tag: Optional[str] = None,
-    fresh: bool = False,
+    fresh: bool = True,
     include_authmind: bool = False,
 ) -> List[Dict[str, Any]]:
     """Map each of the demo events onto a webhook-ingest body.
@@ -190,12 +257,15 @@ def build_events(
 
     run_tag, if given, suffixes finding_id/external_id so this run creates
     new rows instead of colliding with (or silently no-op'ing against) a
-    prior run's. fresh shifts every timestamp so the story lands "now"
-    while preserving the original relative spacing between events.
+    prior run's. fresh (the default) shifts every timestamp so the story
+    lands "now" while preserving the original relative spacing between
+    events; pass fresh=False to keep the original scripted timestamps as
+    authored.
     """
     offset = timedelta(0)
     if fresh:
         offset = datetime.now(timezone.utc) - _parse_ts(_ORIGINAL_LATEST_TS)
+    now_ts = _format_ts(datetime.now(timezone.utc))
 
     def fid(base: str) -> str:
         return f"{base}-{run_tag}" if run_tag else base
@@ -282,6 +352,39 @@ def build_events(
             "severity": "low",
             "description": "AM-AD-DC-03 has accepted legacy NTLM authentication for 5 months (306,847 flows) — standing posture exposure, blast-radius context for hosts on its network path.",
             "entity_context": {"asset": "AM-AD-DC-03.Authmind.local", "playbook": "Unsecure Protocols", "raw_event": WINDOWS_NTLM_POSTURE},
+        },
+        {
+            "finding_id": fid("netskope-phish-entra-lookalike-meenal"),
+            "data_source": "netskope",
+            "external_id": None,
+            # This event isn't part of the timed demo narrative (it has no
+            # relationship to _ORIGINAL_LATEST_TS), so it always lands "now"
+            # rather than being shifted by the story's offset.
+            "timestamp": now_ts,
+            "severity": "high",
+            "description": "Netskope blocked meenal.yadav@authmind.com's browser from a Microsoft Entra ID / Office 365 OAuth lookalike phishing page (login-microsftonline.com, typosquatting login.microsoftonline.com) — high-confidence credential-harvesting page, Cloud Confidence Index 9/poor.",
+            "entity_context": {
+                "identity": "meenal.yadav@authmind.com",
+                "asset": "login-microsftonline.com",
+                "playbook": "Phishing - Credential Harvesting",
+                "raw_event": NETSKOPE_PHISH_ENTRA_LOOKALIKE,
+            },
+        },
+        {
+            "finding_id": fid("defender-phish-click-meenal"),
+            "data_source": "microsoft_defender",
+            "external_id": extid("PHX-2026-DEMO-4471"),
+            # Standalone one-off event like the Netskope one above, not part
+            # of the timed demo narrative, so it always lands "now".
+            "timestamp": now_ts,
+            "severity": "medium",
+            "description": "Microsoft Defender for Office 365 detected meenal.yadav@authmind.com clicking a credential-harvesting phishing link (AiTM proxy kit at authmind-sso-verify[.]com, spoofing a Microsoft 365 password-expiry notice) — the source tool has no visibility into her identity risk, privilege level, or downstream blast radius.",
+            "entity_context": {
+                "identity": "meenal.yadav@authmind.com",
+                "asset": "authmind-sso-verify.com",
+                "playbook": "Phishing - Credential Harvesting (AiTM)",
+                "raw_event": DEFENDER_PHISH_CLICK_MEENAL,
+            },
         },
         {
             "finding_id": fid("demo-authmind-correlated-990214"),
@@ -383,8 +486,8 @@ def main():
     parser.add_argument("--skip-investigate", action="store_true", help="Only ingest events, skip the AuthMind-skill investigation trigger")
     parser.add_argument("--skip-ingest", action="store_true", help="Only run investigation, skip (re-)sending events to the webhook")
     parser.add_argument("--finding-id", action="append", dest="finding_ids", help="Only investigate this finding_id (repeatable). Ingests all events regardless unless --skip-ingest is also set.")
-    parser.add_argument("--fresh", action="store_true", help="Shift all timestamps so the story lands 'now' (preserves original relative spacing)")
-    parser.add_argument("--run-tag", default=None, help="Suffix finding_id/external_id with this tag so the run adds new rows instead of colliding with a prior run's. Auto-generated from the current time when --fresh is set and this is omitted.")
+    parser.add_argument("--backdated", action="store_true", help="Keep the original scripted timestamps as authored, instead of shifting them to land 'now' (the default)")
+    parser.add_argument("--run-tag", default=None, help="Suffix finding_id/external_id with this tag so the run adds new rows instead of colliding with a prior run's. Ingestion skips finding_ids that already exist (it does not update their timestamp), so re-running with no tag against existing rows is a no-op — delete the old rows first to refresh them.")
     parser.add_argument("--include-authmind", action="store_true", help="Also (re-)send the AuthMind-sourced 'correlated incident' event. Omitted by default since AuthMind is configured for skills/enrichment only, not as a finding source.")
     args = parser.parse_args()
 
@@ -392,11 +495,8 @@ def main():
         print("ERROR: no webhook token found. Set DAEMON_WEBHOOK_TOKEN or pass --webhook-token.")
         sys.exit(1)
 
-    run_tag = args.run_tag
-    if args.fresh and not run_tag:
-        run_tag = datetime.now(timezone.utc).strftime("%m%d%H%M%S")
-
-    events = build_events(run_tag=run_tag, fresh=args.fresh, include_authmind=args.include_authmind)
+    fresh = not args.backdated
+    events = build_events(run_tag=args.run_tag, fresh=fresh, include_authmind=args.include_authmind)
 
     if args.skip_ingest:
         sent = events
